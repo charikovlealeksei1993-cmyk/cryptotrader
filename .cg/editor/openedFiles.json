@@ -1,0 +1,246 @@
+{
+  "allFiles": [
+    {
+      "file": "/storage/emulated/0/CodeOnTheGoProjects/Crypto Trader/app/src/main/java/com/cryptotrader/bybit/PortfolioActivity.kt",
+      "selection": {
+        "end": {
+          "column": 1,
+          "index": 24050,
+          "line": 581
+        },
+        "start": {
+          "column": 1,
+          "index": 24050,
+          "line": 581
+        }
+      }
+    },
+    {
+      "file": "/storage/emulated/0/CodeOnTheGoProjects/Crypto Trader/app/src/main/java/com/cryptotrader/bybit/MainActivity.kt",
+      "selection": {
+        "end": {
+          "column": 42,
+          "index": 89877,
+          "line": 2244
+        },
+        "start": {
+          "column": 42,
+          "index": 89877,
+          "line": 2244
+        }
+      }
+    },
+    {
+      "file": "/storage/emulated/0/CodeOnTheGoProjects/Crypto Trader/app/src/main/java/com/cryptotrader/bybit/PaperTrade.kt",
+      "selection": {
+        "end": {
+          "column": 1,
+          "index": 6469,
+          "line": 167
+        },
+        "start": {
+          "column": 1,
+          "index": 6469,
+          "line": 167
+        }
+      }
+    },
+    {
+      "file": "/storage/emulated/0/CodeOnTheGoProjects/Crypto Trader/app/src/main/java/com/cryptotrader/bybit/PaperTrading.kt",
+      "selection": {
+        "end": {
+          "column": 1,
+          "index": 11929,
+          "line": 313
+        },
+        "start": {
+          "column": 1,
+          "index": 11929,
+          "line": 313
+        }
+      }
+    },
+    {
+      "file": "/storage/emulated/0/CodeOnTheGoProjects/Crypto Trader/app/src/main/java/com/cryptotrader/bybit/Prefs.kt",
+      "selection": {
+        "end": {
+          "column": 0,
+          "index": 7476,
+          "line": 199
+        },
+        "start": {
+          "column": 0,
+          "index": 7476,
+          "line": 199
+        }
+      }
+    },
+    {
+      "file": "/storage/emulated/0/CodeOnTheGoProjects/Crypto Trader/app/src/main/AndroidManifest.xml",
+      "selection": {
+        "end": {
+          "column": 11,
+          "index": 1879,
+          "line": 47
+        },
+        "start": {
+          "column": 11,
+          "index": 1879,
+          "line": 47
+        }
+      }
+    },
+    {
+      "file": "/storage/emulated/0/CodeOnTheGoProjects/Crypto Trader/app/src/main/java/com/cryptotrader/bybit/BacktestActivity.kt",
+      "selection": {
+        "end": {
+          "column": 1,
+          "index": 32955,
+          "line": 770
+        },
+        "start": {
+          "column": 1,
+          "index": 32955,
+          "line": 770
+        }
+      }
+    },
+    {
+      "file": "/storage/emulated/0/CodeOnTheGoProjects/Crypto Trader/app/src/main/java/com/cryptotrader/bybit/SettingsActivity.kt",
+      "selection": {
+        "end": {
+          "column": 5,
+          "index": 29222,
+          "line": 777
+        },
+        "start": {
+          "column": 5,
+          "index": 29222,
+          "line": 777
+        }
+      }
+    },
+    {
+      "file": "/storage/emulated/0/CodeOnTheGoProjects/Crypto Trader/app/src/main/java/com/cryptotrader/bybit/BacktestSignal.kt",
+      "selection": {
+        "end": {
+          "column": 1,
+          "index": 7089,
+          "line": 212
+        },
+        "start": {
+          "column": 1,
+          "index": 7089,
+          "line": 212
+        }
+      }
+    },
+    {
+      "file": "/storage/emulated/0/CodeOnTheGoProjects/Crypto Trader/app/src/main/java/com/cryptotrader/bybit/BacktestEngine.kt",
+      "selection": {
+        "end": {
+          "column": 1,
+          "index": 16138,
+          "line": 401
+        },
+        "start": {
+          "column": 1,
+          "index": 16138,
+          "line": 401
+        }
+      }
+    },
+    {
+      "file": "/storage/emulated/0/CodeOnTheGoProjects/Crypto Trader/app/src/main/java/com/cryptotrader/bybit/AnalysisActivity.kt",
+      "selection": {
+        "end": {
+          "column": 1,
+          "index": 12808,
+          "line": 324
+        },
+        "start": {
+          "column": 1,
+          "index": 12808,
+          "line": 324
+        }
+      }
+    },
+    {
+      "file": "/storage/emulated/0/CodeOnTheGoProjects/Crypto Trader/app/src/main/java/com/cryptotrader/bybit/ChartView.kt",
+      "selection": {
+        "end": {
+          "column": 104,
+          "index": 23381,
+          "line": 615
+        },
+        "start": {
+          "column": 104,
+          "index": 23381,
+          "line": 615
+        }
+      }
+    },
+    {
+      "file": "/storage/emulated/0/CodeOnTheGoProjects/Crypto Trader/app/src/main/java/com/cryptotrader/bybit/Persistence.kt",
+      "selection": {
+        "end": {
+          "column": 5,
+          "index": 5871,
+          "line": 155
+        },
+        "start": {
+          "column": 5,
+          "index": 5871,
+          "line": 155
+        }
+      }
+    },
+    {
+      "file": "/storage/emulated/0/CodeOnTheGoProjects/Crypto Trader/app/src/main/java/com/cryptotrader/bybit/SymbolSignal.kt",
+      "selection": {
+        "end": {
+          "column": 1,
+          "index": 180,
+          "line": 8
+        },
+        "start": {
+          "column": 1,
+          "index": 180,
+          "line": 8
+        }
+      }
+    },
+    {
+      "file": "/storage/emulated/0/CodeOnTheGoProjects/Crypto Trader/app/build.gradle.kts",
+      "selection": {
+        "end": {
+          "column": 1,
+          "index": 4437,
+          "line": 142
+        },
+        "start": {
+          "column": 0,
+          "index": 0,
+          "line": 0
+        }
+      }
+    },
+    {
+      "file": "/storage/emulated/0/CodeOnTheGoProjects/Crypto Trader/app/proguard-rules.pro",
+      "selection": {
+        "end": {
+          "column": 20,
+          "index": 2856,
+          "line": 75
+        },
+        "start": {
+          "column": 20,
+          "index": 2856,
+          "line": 75
+        }
+      }
+    }
+  ],
+  "projectPath": "/storage/emulated/0/CodeOnTheGoProjects/Crypto Trader",
+  "selectedFile": "/storage/emulated/0/CodeOnTheGoProjects/Crypto Trader/app/proguard-rules.pro"
+}

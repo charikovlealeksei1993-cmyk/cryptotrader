@@ -1,21 +1,76 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# ============================================================
+# Cryptotrader — ProGuard/R8 rules
+# ============================================================
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# Сохраняем информацию о строках для краш-логов
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Сохраняем аннотации и generic-сигнатуры (нужно Firebase, OkHttp, Kotlin)
+-keepattributes Signature
+-keepattributes *Annotation*
+-keepattributes EnclosingMethod
+-keepattributes InnerClasses
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# ============================================================
+# Firebase Analytics
+# ============================================================
+-keep class com.google.firebase.** { *; }
+-keep class com.google.android.gms.** { *; }
+-dontwarn com.google.firebase.**
+-dontwarn com.google.android.gms.**
+
+# Firebase использует рефлексию для инициализации компонентов
+-keep class com.google.firebase.components.** { *; }
+-keep class com.google.firebase.analytics.** { *; }
+-keep class com.google.firebase.messaging.** { *; }
+
+# ============================================================
+# OkHttp / Okio
+# ============================================================
+-dontwarn okhttp3.**
+-dontwarn okio.**
+-dontwarn org.conscrypt.**
+-dontwarn org.bouncycastle.**
+-dontwarn org.openjsse.**
+
+# OkHttp использует ServiceLoader для платформенных реализаций
+-keep class okhttp3.internal.platform.** { *; }
+-keep class okhttp3.internal.publicsuffix.** { *; }
+
+# ============================================================
+# Kotlin
+# ============================================================
+-keep class kotlin.Metadata { *; }
+-keepclassmembers class **$WhenMappings { <fields>; }
+-keepclassmembers class kotlin.Metadata {
+    public <methods>;
+}
+
+# Data-классы: сохраняем copy(), componentN(), toString()
+-keepclassmembers class ** {
+    *** copy(...);
+    *** component*();
+}
+
+# ============================================================
+# Твои data-классы (JSON-сериализация)
+# ============================================================
+# Candle, Signal, Trade, LsPoint, SpeedReading, SignalResult,
+# PeakForecast, ScanResult, LiqEvent, LiqStats, OrderbookInfo,
+# AppState, PaperTrade, SymbolSignal, SignalMarker, BacktestSignal,
+# BacktestReport, TradeDeltaAnalyzer, ContextSnapshot, Stats,
+# GroupStats, PatternGroup, ExitReasonStats, HorizonStats, PatternStats
+-keep class com.cryptotrader.bybit.** { *; }
+
+# ============================================================
+# JSON / org.json (системный, но на всякий)
+# ============================================================
+-keep class org.json.** { *; }
+
+# ============================================================
+# Отключаем предупреждения для необязательных зависимостей
+# ============================================================
+-dontwarn javax.annotation.**
+-dontwarn kotlin.Unit
+-dontwarn kotlinx.**
