@@ -45,96 +45,6 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
-data class Candle(val time: Long, val open: Double, val high: Double, val low: Double, val close: Double, val volume: Double)
-data class Signal(val type: String, val emoji: String, val name: String, val detail: String)
-data class Trade(val time: Long, val price: Double, val size: Double)
-data class LsPoint(val time: Long, val longPct: Double, val shortPct: Double)
-data class SpeedReading(
-    val speedAt15: Double,
-    val speedAt30: Double,
-    val speedAt45: Double,
-    val speedNow: Double,
-    val accelerating: Boolean,
-    val dying: Boolean,
-    val dyingUp: Boolean,
-    val dyingDown: Boolean,
-    val points: List<Pair<Long, Double>>
-)
-data class SignalResult(val type: String, val candleTime: Long, val strength: String, val pattern: String = "")
-data class PeakForecast(
-    val mid: Double,
-    val low: Double,
-    val high: Double,
-    val remainPct: Double,
-    val confident: Boolean
-) {
-    companion object {
-        fun empty(): PeakForecast = PeakForecast(0.0, 0.0, 0.0, 0.0, false)
-    }
-}
-data class ScanResult(
-    val symbol: String,
-    val price: Double,
-    val change15m: Double,
-    val turnover24h: Double,
-    val turnover1h: Double,
-    val longRatio: Double,
-    val shortRatio: Double,
-    val volRatio: Double,
-    val turnover1m: Double,
-    val signals: List<Signal>,
-    val lastSignalTime: Long = System.currentTimeMillis(),
-    val openInterest: Double = 0.0,
-    val openInterestChange: Double = 0.0,
-    val longRatioChange: Double = 0.0,
-    val oiTrend: String = "stable",
-    val signalType: String = "",
-    val signalStrength: String = "",
-    val signalCandleTime: Long = 0L,
-    val signalPattern: String = "",
-    val peakForecast: Double = 0.0,
-    val peakLow: Double = 0.0,
-    val peakHigh: Double = 0.0,
-    val peakRemainPct: Double = 0.0,
-    val peakConfident: Boolean = false,
-    val bidWallPrice: Double = 0.0,
-    val bidWallUsd: Double = 0.0,
-    val askWallPrice: Double = 0.0,
-    val askWallUsd: Double = 0.0,
-    val deltaPct1m: Double = 0.0,
-    val deltaUsd1m: Double = 0.0,
-    val realDeltaUsd: Double = 0.0,
-    val flowStatus: String = "",
-    val priceAt15mAgo: Double = 0.0
-) {
-    val score: Int get() = signals.size
-}
-data class LiqEvent(val time: Long, val usd: Double, val isLong: Boolean, val price: Double)
-data class LiqStats(val total15m: Double, val long15m: Double, val short15m: Double, val trend: String) {
-    val dominantIsLong: Boolean get() = long15m > short15m
-    val longPct: Double get() = if (total15m > 0) long15m / total15m * 100 else 0.0
-    val shortPct: Double get() = if (total15m > 0) short15m / total15m * 100 else 0.0
-}
-data class OrderbookInfo(
-    val imbalance: Double,
-    val bidWallPrice: Double,
-    val bidWallUsd: Double,
-    val askWallPrice: Double,
-    val askWallUsd: Double
-)
-
-data class AppState(
-    val savedAt: Long,
-    val scanResults: List<ScanResult>,
-    val liqBuffer: Map<String, List<LiqEvent>>,
-    val obInfos: Map<String, OrderbookInfo>,
-    val liveSpeeds: Map<String, SpeedReading>,
-    val longRatioHistory: Map<String, List<Pair<Long, Double>>>,
-    val oiChangeHistory: Map<String, List<Double>>,
-    val signalHistory: Map<String, SymbolSignal>,
-    val signalMarkers: Map<String, List<SignalMarker>> = emptyMap()
-)
-
 class MainActivity : Activity() {
 
     companion object {
@@ -170,9 +80,6 @@ class MainActivity : Activity() {
     private var visibleCount = 100
     private var offset = 0
 
-    private val pinnedSymbols = HashSet<String>()
-    private val pinnedLock = Any()
-    private val MAX_PINNED = 3
 
     private val scanner = Handler(Looper.getMainLooper())
     private val scanInterval = 30_000L
@@ -182,10 +89,6 @@ class MainActivity : Activity() {
 
     private val executor = Executors.newCachedThreadPool()
 
-    private val liveBuffer = HashMap<String, MutableList<Trade>>()
-    private val liveSpeeds = HashMap<String, SpeedReading>()
-    private val liveLock = Any()
-    private val liveInterval = 5_000L
 
     private var tradeSocket: TradeSocket? = null
     private var lastChartUpdate = 0L
@@ -202,18 +105,10 @@ class MainActivity : Activity() {
         scanner.postDelayed(renderRunnable, delayMs)
     }
 
-    private val obInfos = HashMap<String, OrderbookInfo>()
-    private val obHistory = HashMap<String, MutableList<Double>>()
-    private val obLock = Any()
-    private val obInterval = 5_000L
-    private val obHistorySize = 12
 
-    private val liqBuffer = HashMap<String, MutableList<LiqEvent>>()
-    private val liqLock = Any()
     private var liqSocket: LiquidationSocket? = null
     private var currentLiqSymbols: List<String> = emptyList()
 
-    private val liqStatsCache = ConcurrentHashMap<String, LiqStats>()
 
     private val tradeDeltaAnalyzer = TradeDeltaAnalyzer()
     private var tradeDeltaSocket: TradeDeltaSocket? = null
@@ -222,18 +117,9 @@ class MainActivity : Activity() {
     private var tickerSocket: TickerSocket? = null
     private var currentTickerSymbols: List<String> = emptyList()
 
-    private var cachedTickers: List<Pair<String, Double>>? = null
-    private var cachedTickersTime: Long = 0L
-    private val TICKERS_TTL_MS = 5 * 60 * 1000L
 
-    private val liqTrendHistory = HashMap<String, MutableList<String>>()
-    private val liqTrendLock = Any()
 
-    private val signalHistory = HashMap<String, SymbolSignal>()
-    private val signalHistoryLock = Any()
 
-    private val signalMarkers = HashMap<String, MutableList<SignalMarker>>()
-    private val signalMarkersLock = Any()
 
     private data class ChartCache(
         val candles: List<Candle>,
@@ -242,40 +128,26 @@ class MainActivity : Activity() {
     )
     private val chartCache = HashMap<String, ChartCache>()
     private val chartCacheLock = Any()
+
+    private val MAX_PINNED = 3
+    private val liveInterval = 5_000L
+    private val obInterval = 5_000L
+    private val obHistorySize = 12
+    private val SIGNAL_COOLDOWN_MS = 30 * 60 * 1000L
+    private val KEEP_OLD_MS = 10 * 60 * 1000L
     private val CHART_CACHE_TTL_MS = 60_000L
 
     private var chartLoading = false
 
-    private val signalCooldown = HashMap<String, Long>()
-    private val SIGNAL_COOLDOWN_MS = 30 * 60 * 1000L
 
-    private val openInterestHistory = HashMap<String, Double>()
-    private val openInterestTimestamp = HashMap<String, Long>()
-    private val oiLock = Any()
 
-    private val longRatioHistory = HashMap<String, MutableList<Pair<Long, Double>>>()
-    private val longRatioLock = Any()
 
-    private val oiChangeHistory = HashMap<String, MutableList<Double>>()
-    private val oiChangeLock = Any()
 
-    private val notifiedCooldown = HashMap<String, Long>()
-    private val NOTIFY_COOLDOWN_MS = 60 * 60 * 1000L
 
-    private val notifiedType = HashMap<String, String>()
-    private val notifiedTime = HashMap<String, Long>()
-    private val NOTIFIED_TTL = 60 * 1000L
 
-    private val notifiedSignalKey = HashMap<String, String>()
-    private val notifiedSignalTime = HashMap<String, Long>()
-    private val SIGNAL_NOTIFY_COOLDOWN_MS = 30 * 60 * 1000L
 
-    private val liquidationActive = HashSet<String>()
-    private val liquidationActiveLock = Any()
 
-    private val KEEP_OLD_MS = 10 * 60 * 1000L
 
-    private val CHANNEL_ID = "crypto_trader_signals_v2"
         private val scanRunnable = object : Runnable {
         override fun run() {
             if (!isChartMode) startScan()
@@ -351,13 +223,13 @@ class MainActivity : Activity() {
             android.util.Log.e("Cryptotrader", "Service start failed: ${e.message}")
         }
 
-        synchronized(pinnedLock) {
-            pinnedSymbols.clear()
-            pinnedSymbols.addAll(Prefs.pinned(this).take(MAX_PINNED))
+        synchronized(MarketState.pinnedLock) {
+            MarketState.pinnedSymbols.clear()
+            MarketState.pinnedSymbols.addAll(Prefs.pinned(this).take(MAX_PINNED))
         }
 
-        createNotificationChannel()
-        requestNotificationPermission()
+        NotificationHelper.createNotificationChannel(this)
+        NotificationHelper.requestNotificationPermission(this)
         buildUi()
         applyOrientation()
         loadState()
@@ -450,14 +322,14 @@ class MainActivity : Activity() {
     private fun captureState(): AppState = AppState(
         savedAt = System.currentTimeMillis(),
         scanResults = scanResults,
-        liqBuffer = synchronized(liqLock) { HashMap(liqBuffer) },
-        obInfos = synchronized(obLock) { HashMap(obInfos) },
-        liveSpeeds = synchronized(liveLock) { HashMap(liveSpeeds) },
-        longRatioHistory = synchronized(longRatioLock) { HashMap(longRatioHistory) },
-        oiChangeHistory = synchronized(oiChangeLock) { HashMap(oiChangeHistory) },
-        signalHistory = synchronized(signalHistoryLock) { HashMap(signalHistory) },
-        signalMarkers = synchronized(signalMarkersLock) {
-            signalMarkers.mapValues { ArrayList(it.value) }
+        liqBuffer = synchronized(MarketState.liqLock) { HashMap(MarketState.liqBuffer) },
+        obInfos = synchronized(MarketState.obLock) { HashMap(MarketState.obInfos) },
+        liveSpeeds = synchronized(MarketState.liveLock) { HashMap(MarketState.liveSpeeds) },
+        longRatioHistory = synchronized(MarketState.longRatioLock) { HashMap(MarketState.longRatioHistory) },
+        oiChangeHistory = synchronized(MarketState.oiChangeLock) { HashMap(MarketState.oiChangeHistory) },
+        signalHistory = synchronized(MarketState.signalHistoryLock) { HashMap(MarketState.signalHistory) },
+        signalMarkers = synchronized(MarketState.signalMarkersLock) {
+            MarketState.signalMarkers.mapValues { ArrayList(it.value) }
         }
     )
 
@@ -477,40 +349,40 @@ class MainActivity : Activity() {
     private fun loadState() {
         val state = Persistence.load(this) ?: return
         scanResults = state.scanResults
-        synchronized(liqLock) {
-            liqBuffer.clear()
+        synchronized(MarketState.liqLock) {
+            MarketState.liqBuffer.clear()
             state.liqBuffer.forEach { (k, v) ->
-                liqBuffer[k] = ArrayList(v)
+                MarketState.liqBuffer[k] = ArrayList(v)
             }
         }
-        synchronized(obLock) {
-            obInfos.clear()
-            obInfos.putAll(state.obInfos)
+        synchronized(MarketState.obLock) {
+            MarketState.obInfos.clear()
+            MarketState.obInfos.putAll(state.obInfos)
         }
-        synchronized(liveLock) {
-            liveSpeeds.clear()
-            liveSpeeds.putAll(state.liveSpeeds)
+        synchronized(MarketState.liveLock) {
+            MarketState.liveSpeeds.clear()
+            MarketState.liveSpeeds.putAll(state.liveSpeeds)
         }
-        synchronized(longRatioLock) {
-            longRatioHistory.clear()
+        synchronized(MarketState.longRatioLock) {
+            MarketState.longRatioHistory.clear()
             state.longRatioHistory.forEach { (k, v) ->
-                longRatioHistory[k] = ArrayList(v)
+                MarketState.longRatioHistory[k] = ArrayList(v)
             }
         }
-        synchronized(oiChangeLock) {
-            oiChangeHistory.clear()
+        synchronized(MarketState.oiChangeLock) {
+            MarketState.oiChangeHistory.clear()
             state.oiChangeHistory.forEach { (k, v) ->
-                oiChangeHistory[k] = ArrayList(v)
+                MarketState.oiChangeHistory[k] = ArrayList(v)
             }
         }
-        synchronized(signalHistoryLock) {
-            signalHistory.clear()
-            signalHistory.putAll(state.signalHistory)
+        synchronized(MarketState.signalHistoryLock) {
+            MarketState.signalHistory.clear()
+            MarketState.signalHistory.putAll(state.signalHistory)
         }
-        synchronized(signalMarkersLock) {
-            signalMarkers.clear()
+        synchronized(MarketState.signalMarkersLock) {
+            MarketState.signalMarkers.clear()
             state.signalMarkers.forEach { (k, v) ->
-                signalMarkers[k] = ArrayList(v)
+                MarketState.signalMarkers[k] = ArrayList(v)
             }
         }
         if (scanResults.isNotEmpty()) {
@@ -518,28 +390,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            try {
-                val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                nm.deleteNotificationChannel("crypto_trader_signals")
-            } catch (_: Exception) {}
-            val channel = NotificationChannel(CHANNEL_ID, "Сигналы Crypto Trader", NotificationManager.IMPORTANCE_HIGH)
-            channel.description = "Оповещения при резких скачках и входах"
-            channel.enableVibration(true)
-            channel.enableLights(true)
-            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            nm.createNotificationChannel(channel)
-        }
-    }
 
-    private fun requestNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001)
-            }
-        }
-    }
 
     private fun buildUi() {
         root = LinearLayout(this)
@@ -791,10 +642,10 @@ class MainActivity : Activity() {
                 val tfLocal = currentTf
 
                 val candlesFuture = CompletableFuture.supplyAsync(
-                    { fetchKlines(sym, tfLocal, limit).reversed() }, executor
+                    { BybitApi.fetchKlines(sym, tfLocal, limit).reversed() }, executor
                 )
                 val lsFuture = CompletableFuture.supplyAsync(
-                    { try { fetchLsHistory(sym, lsPeriod, 100) } catch (e: Exception) { emptyList<LsPoint>() } }, executor
+                    { try { BybitApi.fetchLsHistory(sym, lsPeriod, 100) } catch (e: Exception) { emptyList<LsPoint>() } }, executor
                 )
 
                 val candles = try { candlesFuture.get(25, TimeUnit.SECONDS) } catch (e: Exception) {
@@ -839,7 +690,7 @@ class MainActivity : Activity() {
         chartView.setData(candles, offset, visibleCount, Prefs.chartType(this), Prefs.theme(this))
         chartView.setLsPoints(ls)
         chartView.setSignalMarkers(getSignalMarkers(currentSymbol))
-        val obInfo = synchronized(obLock) { obInfos[currentSymbol] }
+        val obInfo = synchronized(MarketState.obLock) { MarketState.obInfos[currentSymbol] }
         chartView.setWalls(
             obInfo?.bidWallPrice ?: 0.0, obInfo?.bidWallUsd ?: 0.0,
             obInfo?.askWallPrice ?: 0.0, obInfo?.askWallUsd ?: 0.0
@@ -890,23 +741,23 @@ class MainActivity : Activity() {
 
     private fun togglePin(symbol: String) {
         var showLimitToast = false
-        val wasPinned = synchronized(pinnedLock) { symbol in pinnedSymbols }
+        val wasPinned = synchronized(MarketState.pinnedLock) { symbol in MarketState.pinnedSymbols }
         logEvent("pin_toggled", Bundle().apply {
             putString("symbol", symbol)
             putString("action", if (wasPinned) "unpin" else "pin")
         })
-        synchronized(pinnedLock) {
-            if (symbol in pinnedSymbols) {
-                pinnedSymbols.remove(symbol)
-                Prefs.setPinned(this, pinnedSymbols.toSet())
+        synchronized(MarketState.pinnedLock) {
+            if (symbol in MarketState.pinnedSymbols) {
+                MarketState.pinnedSymbols.remove(symbol)
+                Prefs.setPinned(this, MarketState.pinnedSymbols.toSet())
             } else {
                 val active = scanResults.map { it.symbol }.toSet()
-                val activeCount = pinnedSymbols.count { it in active }
+                val activeCount = MarketState.pinnedSymbols.count { it in active }
                 if (activeCount >= MAX_PINNED) {
                     showLimitToast = true
                 } else {
-                    pinnedSymbols.add(symbol)
-                    Prefs.setPinned(this, pinnedSymbols.toSet())
+                    MarketState.pinnedSymbols.add(symbol)
+                    Prefs.setPinned(this, MarketState.pinnedSymbols.toSet())
                 }
             }
         }
@@ -936,7 +787,7 @@ class MainActivity : Activity() {
         sb.appendLine("Цена: ${"%.4f".format(r.price)}  ·  15м: ${"%+.2f".format(r.change15m)}%")
 
         val hourPct = if (r.turnover24h > 0) r.turnover1h / r.turnover24h * 100 else 0.0
-        sb.appendLine("💰 Оборот 24ч: ${formatMoney(r.turnover24h)} · 1ч: ${formatMoney(r.turnover1h)} (${"%.1f".format(hourPct)}%)")
+        sb.appendLine("💰 Оборот 24ч: ${UiUtils.formatMoney(r.turnover24h)} · 1ч: ${UiUtils.formatMoney(r.turnover1h)} (${"%.1f".format(hourPct)}%)")
 
         if (r.signals.isNotEmpty()) {
             r.signals.forEach { sig ->
@@ -951,8 +802,8 @@ class MainActivity : Activity() {
                 else -> "⚪"
             }
             val deltaSign = if (r.deltaPct1m >= 0) "+" else ""
-            val realDeltaStr = if (r.realDeltaUsd >= 0) "+${formatMoney(r.realDeltaUsd)}"
-                               else "-${formatMoney(-r.realDeltaUsd)}"
+            val realDeltaStr = if (r.realDeltaUsd >= 0) "+${UiUtils.formatMoney(r.realDeltaUsd)}"
+                               else "-${UiUtils.formatMoney(-r.realDeltaUsd)}"
             val flowLabel = when (r.flowStatus) {
                 "new_long" -> "New Money ↑"
                 "short_squeeze" -> "Short Squeeze"
@@ -972,7 +823,7 @@ class MainActivity : Activity() {
             sb.appendLine("📊 Лонги/Шорты: нет данных")
         }
 
-        val obInfo = synchronized(obLock) { obInfos[r.symbol] }
+        val obInfo = synchronized(MarketState.obLock) { MarketState.obInfos[r.symbol] }
         if (obInfo != null) {
             val imb = obInfo.imbalance
             val sign = if (imb >= 0) "+" else ""
@@ -983,8 +834,8 @@ class MainActivity : Activity() {
             }
             sb.appendLine("⚖️ Стакан: $sign${"%.2f".format(imb)} ($label)")
             if (obInfo.bidWallPrice > 0 || obInfo.askWallPrice > 0) {
-                sb.appendLine("   Bid wall: ${"%.4f".format(obInfo.bidWallPrice)} (${formatMoney(obInfo.bidWallUsd)})")
-                sb.appendLine("   Ask wall: ${"%.4f".format(obInfo.askWallPrice)} (${formatMoney(obInfo.askWallUsd)})")
+                sb.appendLine("   Bid wall: ${"%.4f".format(obInfo.bidWallPrice)} (${UiUtils.formatMoney(obInfo.bidWallUsd)})")
+                sb.appendLine("   Ask wall: ${"%.4f".format(obInfo.askWallPrice)} (${UiUtils.formatMoney(obInfo.askWallUsd)})")
             }
         } else {
             sb.appendLine("⚖️ Стакан: нет данных")
@@ -993,7 +844,7 @@ class MainActivity : Activity() {
         if (r.openInterest > 0) {
             val oiSign = if (r.openInterestChange >= 0) "+" else ""
             val oiUsd = r.openInterest * r.price
-            sb.appendLine("📊 OI: ${formatMoney(r.openInterest)} (~${formatMoney(oiUsd)}) · $oiSign${"%.2f".format(r.openInterestChange)}%")
+            sb.appendLine("📊 OI: ${UiUtils.formatMoney(r.openInterest)} (~${UiUtils.formatMoney(oiUsd)}) · $oiSign${"%.2f".format(r.openInterestChange)}%")
         }
 
         val liq = getCachedLiqStats(r.symbol)
@@ -1005,7 +856,7 @@ class MainActivity : Activity() {
                 "falling" -> "🪫 затухает"
                 else -> "➡️ стабильно"
             }
-            sb.appendLine("💥 Ликвидации 15м: ${formatMoney(liq.total15m)} · $who ${"%.0f".format(domPct)}% · $trendIcon")
+            sb.appendLine("💥 Ликвидации 15м: ${UiUtils.formatMoney(liq.total15m)} · $who ${"%.0f".format(domPct)}% · $trendIcon")
             if (r.peakForecast > 0) {
                 val dirWord = if (!liq.dominantIsLong) "вверх" else "вниз"
                 val zone = if (r.peakLow > 0 && r.peakHigh > r.peakLow) {
@@ -1030,7 +881,7 @@ class MainActivity : Activity() {
                 sb.appendLine("🟡 Возможен вход в лонг (объём/позиция не дотянули)$patternSuffix")
         }
 
-        val sp = synchronized(liveLock) { liveSpeeds[r.symbol] }
+        val sp = synchronized(MarketState.liveLock) { MarketState.liveSpeeds[r.symbol] }
         if (sp != null) {
             val icon = when {
                 sp.accelerating -> "⚡⚡⚡ ускорение"
@@ -1043,17 +894,6 @@ class MainActivity : Activity() {
         return sb.toString().trim()
     }
 
-    private fun notificationPriority(symbol: String): Int {
-        val type = synchronized(notifiedCooldown) { notifiedType[symbol] } ?: return 0
-        val t = synchronized(notifiedCooldown) { notifiedTime[symbol] } ?: 0L
-        if (System.currentTimeMillis() - t > NOTIFIED_TTL) return 0
-        return when (type) {
-            "liquidation" -> 3
-            "speed" -> 2
-            "volume" -> 1
-            else -> 0
-        }
-    }
 
     private fun sortResults(list: List<ScanResult>): List<ScanResult> {
         val base = list.sortedWith(
@@ -1064,7 +904,7 @@ class MainActivity : Activity() {
 
         val (priority, others) = base.partition {
             it.signalType.isNotEmpty() ||
-            notificationPriority(it.symbol) > 0 ||
+            NotificationHelper.notificationPriority(it.symbol) > 0 ||
             (getCachedLiqStats(it.symbol)?.total15m ?: 0.0) >= liqThreshold
         }
 
@@ -1074,11 +914,11 @@ class MainActivity : Activity() {
                     "strong" -> 4
                     "weak" -> 3
                     else -> if (it.signalType.isNotEmpty()) 2
-                            else if (notificationPriority(it.symbol) > 0) 1
+                            else if (NotificationHelper.notificationPriority(it.symbol) > 0) 1
                             else 0
                 }
             }
-                .thenByDescending { notificationPriority(it.symbol) }
+                .thenByDescending { NotificationHelper.notificationPriority(it.symbol) }
                 .thenByDescending { getCachedLiqStats(it.symbol)?.total15m ?: 0.0 }
         )
         return sortedPriority + others
@@ -1094,8 +934,8 @@ class MainActivity : Activity() {
 
         private fun addSignalMarker(symbol: String, time: Long, type: String, pattern: String, sourceTf: String) {
         if (time <= 0L || type.isEmpty()) return
-        synchronized(signalMarkersLock) {
-            val list = signalMarkers.getOrPut(symbol) { ArrayList() }
+        synchronized(MarketState.signalMarkersLock) {
+            val list = MarketState.signalMarkers.getOrPut(symbol) { ArrayList() }
             if (list.any { it.time == time }) return
             list.add(SignalMarker(time, type, pattern, sourceTf))
             if (list.size > 200) {
@@ -1104,31 +944,13 @@ class MainActivity : Activity() {
         }
     }
     private fun getSignalMarkers(symbol: String): List<SignalMarker> {
-        synchronized(signalMarkersLock) {
-            return signalMarkers[symbol]?.toList() ?: emptyList()
+        synchronized(MarketState.signalMarkersLock) {
+            return MarketState.signalMarkers[symbol]?.toList() ?: emptyList()
         }
     }
 
     // ================== HTTP ==================
 
-    private fun httpGet(urlStr: String, connectMs: Int = 10000, readMs: Int = 15000): String {
-        val conn = URL(urlStr).openConnection() as HttpURLConnection
-        conn.requestMethod = "GET"
-        conn.connectTimeout = connectMs
-        conn.readTimeout = readMs
-        conn.setRequestProperty("User-Agent", "Mozilla/5.0")
-        conn.setRequestProperty("Referer", "https://www.bybit.com")
-        try {
-            val code = conn.responseCode
-            if (code !in 200..299) {
-                val err = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
-                throw RuntimeException("HTTP $code: ${err.take(200)}")
-            }
-            return conn.inputStream.bufferedReader().use { it.readText() }
-        } finally {
-            conn.disconnect()
-        }
-    }
 
     private fun lsPeriodForTf(tf: String): String = when (tf) {
         "1" -> "5min"
@@ -1142,7 +964,7 @@ class MainActivity : Activity() {
 
     private fun updateOpenInterest(symbol: String): Pair<Double, Double>? {
         return try {
-            val body = httpGet(
+            val body = BybitApi.httpGet(
                 "https://api.bybit.com/v5/market/open-interest?category=linear&symbol=$symbol&intervalTime=5min&limit=2",
                 5000, 6000
             )
@@ -1161,9 +983,9 @@ class MainActivity : Activity() {
             }
 
             val now = System.currentTimeMillis()
-            synchronized(oiLock) {
-                openInterestHistory[symbol] = latest
-                openInterestTimestamp[symbol] = now
+            synchronized(MarketState.oiLock) {
+                MarketState.openInterestHistory[symbol] = latest
+                MarketState.openInterestTimestamp[symbol] = now
             }
 
             latest to change
@@ -1173,8 +995,8 @@ class MainActivity : Activity() {
     }
 
     private fun updateLongRatioHistory(symbol: String, longRatio: Double) {
-        synchronized(longRatioLock) {
-            val buf = longRatioHistory.getOrPut(symbol) { ArrayList() }
+        synchronized(MarketState.longRatioLock) {
+            val buf = MarketState.longRatioHistory.getOrPut(symbol) { ArrayList() }
             buf.add(System.currentTimeMillis() to longRatio)
             val cutoff = System.currentTimeMillis() - 20 * 60 * 1000L
             buf.removeAll { it.first < cutoff }
@@ -1182,8 +1004,8 @@ class MainActivity : Activity() {
     }
 
     private fun computeLongRatioChange(symbol: String, current: Double): Double {
-        synchronized(longRatioLock) {
-            val buf = longRatioHistory[symbol] ?: return 0.0
+        synchronized(MarketState.longRatioLock) {
+            val buf = MarketState.longRatioHistory[symbol] ?: return 0.0
             val targetTime = System.currentTimeMillis() - 15 * 60 * 1000L
             val old = buf.minByOrNull { abs(it.first - targetTime) } ?: return 0.0
             if (old.first < System.currentTimeMillis() - 20 * 60 * 1000L) return 0.0
@@ -1192,16 +1014,16 @@ class MainActivity : Activity() {
     }
 
     private fun updateOiTrend(symbol: String, change: Double) {
-        synchronized(oiChangeLock) {
-            val buf = oiChangeHistory.getOrPut(symbol) { ArrayList() }
+        synchronized(MarketState.oiChangeLock) {
+            val buf = MarketState.oiChangeHistory.getOrPut(symbol) { ArrayList() }
             buf.add(change)
             while (buf.size > 4) buf.removeAt(0)
         }
     }
 
     private fun computeOiTrend(symbol: String): String {
-        synchronized(oiChangeLock) {
-            val buf = oiChangeHistory[symbol] ?: return "stable"
+        synchronized(MarketState.oiChangeLock) {
+            val buf = MarketState.oiChangeHistory[symbol] ?: return "stable"
             if (buf.size < 3) return "stable"
             val last = buf.last()
             val prev = buf.subList(0, buf.size - 1).average()
@@ -1214,56 +1036,6 @@ class MainActivity : Activity() {
 
     // ================== Orderbook ==================
 
-    private fun fetchOrderbookInfo(symbol: String): OrderbookInfo? {
-        return try {
-            val body = httpGet("https://api.bybit.com/v5/market/orderbook?category=linear&symbol=$symbol&limit=50", 5000, 6000)
-            val json = JSONObject(body)
-            val result = json.getJSONObject("result")
-            val bids = result.getJSONArray("b")
-            val asks = result.getJSONArray("a")
-            var bidVol = 0.0
-            var askVol = 0.0
-            var bidWallVol = 0.0
-            var bidWallPrice = 0.0
-            var askWallVol = 0.0
-            var askWallPrice = 0.0
-            val top = 20
-            val bidCount = min(top, bids.length())
-            val askCount = min(top, asks.length())
-
-            for (i in 0 until bidCount) {
-                val row = bids.getJSONArray(i)
-                val price = row.getString(0).toDoubleOrNull() ?: continue
-                val vol = row.getString(1).toDoubleOrNull() ?: continue
-                bidVol += vol
-                if (vol > bidWallVol) {
-                    bidWallVol = vol
-                    bidWallPrice = price
-                }
-            }
-            for (i in 0 until askCount) {
-                val row = asks.getJSONArray(i)
-                val price = row.getString(0).toDoubleOrNull() ?: continue
-                val vol = row.getString(1).toDoubleOrNull() ?: continue
-                askVol += vol
-                if (vol > askWallVol) {
-                    askWallVol = vol
-                    askWallPrice = price
-                }
-            }
-
-            val total = bidVol + askVol
-            val imb = if (total <= 0.0) 0.0 else (bidVol - askVol) / total
-
-            OrderbookInfo(
-                imbalance = imb,
-                bidWallPrice = bidWallPrice,
-                bidWallUsd = bidWallVol * bidWallPrice,
-                askWallPrice = askWallPrice,
-                askWallUsd = askWallVol * askWallPrice
-            )
-        } catch (_: Exception) { null }
-    }
 
     private fun refreshOrderbook() {
         val symbols = scanResults.map { it.symbol }
@@ -1271,22 +1043,22 @@ class MainActivity : Activity() {
 
         executor.execute {
             for (sym in symbols) {
-                val info = fetchOrderbookInfo(sym) ?: continue
-                synchronized(obLock) {
-                    val hist = obHistory.getOrPut(sym) { ArrayList() }
+                val info = BybitApi.fetchOrderbookInfo(sym) ?: continue
+                synchronized(MarketState.obLock) {
+                    val hist = MarketState.obHistory.getOrPut(sym) { ArrayList() }
                     hist.add(info.imbalance)
                     while (hist.size > obHistorySize) hist.removeAt(0)
                     val avg = hist.average()
-                    obInfos[sym] = info.copy(imbalance = avg)
+                    MarketState.obInfos[sym] = info.copy(imbalance = avg)
                 }
             }
 
             Handler(Looper.getMainLooper()).post {
-                checkNotifications()
+                NotificationHelper.checkNotifications(this, scanResults)
                 requestRender()
                 updateBalanceLabel()
                 if (isChartMode) {
-                    val obInfo = synchronized(obLock) { obInfos[currentSymbol] }
+                    val obInfo = synchronized(MarketState.obLock) { MarketState.obInfos[currentSymbol] }
                     if (obInfo != null) {
                         chartView.setWalls(
                             obInfo.bidWallPrice, obInfo.bidWallUsd,
@@ -1299,202 +1071,10 @@ class MainActivity : Activity() {
     }
         // ================== Notifications ==================
 
-    private fun checkNotifications() {
-        val now = System.currentTimeMillis()
-        notifiedCooldown.entries.removeAll { now - it.value > NOTIFY_COOLDOWN_MS }
 
-        val liqThreshold = Prefs.liqThreshold(this)
 
-        for (r in scanResults) {
-            val reasons = ArrayList<String>()
-            var type = ""
-            var isLiquidation = false
 
-            if (Prefs.notifEnabled(this, "liquidation")) {
-                val liq = getCachedLiqStats(r.symbol)
-                val active = liq != null && liq.total15m >= liqThreshold
 
-                var triggerNow = false
-                synchronized(liquidationActiveLock) {
-                    if (active && r.symbol !in liquidationActive) {
-                        liquidationActive.add(r.symbol)
-                        triggerNow = true
-                    } else if (!active) {
-                        liquidationActive.remove(r.symbol)
-                    }
-                }
-
-                if (triggerNow && liq != null) {
-                    type = "liquidation"
-                    isLiquidation = true
-                    logEvent("liq_notification", Bundle().apply {
-                        putString("symbol", r.symbol)
-                        putLong("total_usd", liq.total15m.toLong())
-                    })
-                    val who = if (liq.dominantIsLong) "🐂 лонги" else "🐻 шорты"
-                    val domPct = if (liq.dominantIsLong) liq.longPct else liq.shortPct
-                    reasons.add("💥 Ликвидации ${formatMoney(liq.total15m)} · $who ${"%.0f".format(domPct)}%")
-                }
-            }
-
-            if (!isLiquidation && notifiedCooldown.containsKey(r.symbol)) continue
-
-            if (type.isEmpty() && Prefs.notifEnabled(this, "speed")) {
-                val sp = synchronized(liveLock) { liveSpeeds[r.symbol] }
-                if (sp != null && sp.accelerating && sp.speedNow >= 0.5) {
-                    type = "speed"
-                    reasons.add("⚡ Ускорение ×${"%.1f".format(sp.speedNow / maxOf(sp.speedAt15, 0.01))} · ${"%.2f".format(sp.speedNow)}%/мин")
-                }
-            }
-
-            if (type.isEmpty() && Prefs.notifEnabled(this, "volume")) {
-                if (r.volRatio >= 5.0) {
-                    type = "volume"
-                    reasons.add("📈 Аномальный объём ×${"%.1f".format(r.volRatio)}")
-                }
-                if (r.turnover1m >= 200_000.0) {
-                    if (type.isEmpty()) type = "volume"
-                    reasons.add("💰 Оборот ${formatMoney(r.turnover1m)} за минуту")
-                }
-            }
-
-            if (reasons.isNotEmpty() && type.isNotEmpty()) {
-                vibrate(300)
-                sendNotificationMulti(r, reasons, type)
-                notifiedCooldown[r.symbol] = now
-                synchronized(notifiedCooldown) {
-                    notifiedType[r.symbol] = type
-                    notifiedTime[r.symbol] = now
-                }
-            }
-        }
-
-        for (r in scanResults) {
-            if (r.signalType.isEmpty()) continue
-            if (r.signalStrength != "strong") continue
-            val key = "${r.symbol}_${r.signalCandleTime}"
-            val prevKey = synchronized(notifiedSignalKey) { notifiedSignalKey[r.symbol] }
-            if (prevKey == key) continue
-            val lastT = synchronized(notifiedSignalKey) { notifiedSignalTime[r.symbol] ?: 0L }
-            if (now - lastT < SIGNAL_NOTIFY_COOLDOWN_MS) continue
-            synchronized(notifiedSignalKey) {
-                notifiedSignalKey[r.symbol] = key
-                notifiedSignalTime[r.symbol] = now
-            }
-            sendSignalNotification(r)
-            synchronized(signalCooldown) { signalCooldown[r.symbol] = now }
-        }
-    }
-
-    private fun sendSignalNotification(r: ScanResult) {
-        try {
-            val intent = Intent(this, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-                putExtra("symbol", r.symbol)
-            }
-            val pending = PendingIntent.getActivity(
-                this, r.symbol.hashCode() + 2000, intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            val patternStr = if (r.signalPattern.isNotEmpty()) " (${r.signalPattern})" else ""
-            val label = if (r.signalType == "long") "🟢 ВХОД В ЛОНГ$patternStr" else "🟢 ВХОД В ШОРТ$patternStr"
-            val title = "$label — ${r.symbol}"
-            val body = buildString {
-                appendLine("Цена: ${"%.4f".format(r.price)} · 15м: ${"%+.2f".format(r.change15m)}%")
-                val liq = getCachedLiqStats(r.symbol)
-                if (liq != null) {
-                    val who = if (liq.dominantIsLong) "🐂 лонги" else "🐻 шорты"
-                    appendLine("💥 Ликвидации: ${formatMoney(liq.total15m)} · $who")
-                }
-                if (r.peakForecast > 0) {
-                    appendLine("🎯 Зона: ${"%.4f".format(r.peakForecast)} (±${"%.1f".format(r.peakRemainPct)}%)")
-                }
-            }.trim()
-
-            val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.stat_notify_chat)
-                .setContentTitle(title)
-                .setContentText("Цена ${"%.4f".format(r.price)} · Ликв ${formatMoney(getCachedLiqStats(r.symbol)?.total15m ?: 0.0)}")
-                .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setContentIntent(pending)
-                .setAutoCancel(true)
-                .setSilent(false)
-
-            if (Build.VERSION.SDK_INT < 33 ||
-                checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
-                NotificationManagerCompat.from(this).notify(r.symbol.hashCode() + 2000, builder.build())
-                playSoundFor("signal")
-            }
-            vibrate(500)
-        } catch (_: Exception) {}
-    }
-
-    private fun sendNotificationMulti(r: ScanResult, reasons: List<String>, type: String) {
-        try {
-            val intent = Intent(this, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-                putExtra("symbol", r.symbol)
-            }
-            val pending = PendingIntent.getActivity(
-                this, r.symbol.hashCode(), intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            val typeEmoji = when (type) {
-                "liquidation" -> "💥"
-                "speed" -> "⚡"
-                "volume" -> "📈"
-                else -> "🚀"
-            }
-            val typeLabel = when (type) {
-                "liquidation" -> "Ликвидации"
-                "speed" -> "Ускорение"
-                "volume" -> "Объём"
-                else -> "Сигнал"
-            }
-            val title = "$typeEmoji ${r.symbol} — $typeLabel"
-            val body = buildString {
-                reasons.forEach { appendLine(it) }
-                append("Цена: ${"%.4f".format(r.price)} · 15м: ${"%+.2f".format(r.change15m)}%")
-            }
-            val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.stat_notify_chat)
-                .setContentTitle(title)
-                .setContentText(reasons.first())
-                .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-                .setPriority(NotificationCompat.PRIORITY_LOW)
-                .setContentIntent(pending)
-                .setAutoCancel(true)
-                .setSilent(true)
-
-            if (Build.VERSION.SDK_INT < 33 ||
-                checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
-                NotificationManagerCompat.from(this).notify(r.symbol.hashCode(), builder.build())
-                playSoundFor(type)
-            }
-        } catch (_: Exception) {}
-    }
-
-    private fun playSoundFor(type: String) {
-        try {
-            val uri = Prefs.soundUriFor(this, type)
-                ?: Prefs.soundUri(this)
-                ?: return
-            RingtoneManager.getRingtone(applicationContext, uri)?.play()
-        } catch (_: Exception) {}
-    }
-
-    private fun vibrate(ms: Long) {
-        try {
-            val vib = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                vib.vibrate(VibrationEffect.createOneShot(ms, VibrationEffect.DEFAULT_AMPLITUDE))
-            } else {
-                @Suppress("DEPRECATION")
-                vib.vibrate(ms)
-            }
-        } catch (_: Exception) {}
-    }
 
     // ================== Liquidation socket ==================
 
@@ -1504,8 +1084,8 @@ class MainActivity : Activity() {
         stopLiqSocket()
         currentLiqSymbols = symbols
         liqSocket = LiquidationSocket(symbols) { symbol, time, usd, isLong, price ->
-            synchronized(liqLock) {
-                val buf = liqBuffer.getOrPut(symbol) { ArrayList() }
+            synchronized(MarketState.liqLock) {
+                val buf = MarketState.liqBuffer.getOrPut(symbol) { ArrayList() }
                 buf.add(LiqEvent(time, usd, isLong, price))
                 val cutoff = System.currentTimeMillis() - 15 * 60 * 1000L
                 buf.removeAll { it.time < cutoff }
@@ -1616,22 +1196,22 @@ class MainActivity : Activity() {
 
     private fun refreshLiqStatsCache() {
         try {
-            val keys = synchronized(liqLock) { liqBuffer.keys.toList() }
+            val keys = synchronized(MarketState.liqLock) { MarketState.liqBuffer.keys.toList() }
             val newMap = HashMap<String, LiqStats>(keys.size)
             for (sym in keys) {
                 val s = computeLiqStats(sym) ?: continue
                 newMap[sym] = s
             }
-            liqStatsCache.clear()
-            liqStatsCache.putAll(newMap)
+            MarketState.liqStatsCache.clear()
+            MarketState.liqStatsCache.putAll(newMap)
         } catch (_: Exception) {}
     }
 
-    private fun getCachedLiqStats(symbol: String): LiqStats? = liqStatsCache[symbol]
+    private fun getCachedLiqStats(symbol: String): LiqStats? = MarketState.liqStatsCache[symbol]
 
     private fun computeLiqStats(symbol: String): LiqStats? {
         val events: List<LiqEvent>
-        synchronized(liqLock) { events = liqBuffer[symbol]?.toList() ?: return null }
+        synchronized(MarketState.liqLock) { events = MarketState.liqBuffer[symbol]?.toList() ?: return null }
         if (events.isEmpty()) return null
 
         val now = System.currentTimeMillis()
@@ -1652,8 +1232,8 @@ class MainActivity : Activity() {
             else -> "stable"
         }
 
-        val smoothedTrend = synchronized(liqTrendLock) {
-            val hist = liqTrendHistory.getOrPut(symbol) { ArrayList() }
+        val smoothedTrend = synchronized(MarketState.liqTrendLock) {
+            val hist = MarketState.liqTrendHistory.getOrPut(symbol) { ArrayList() }
             hist.add(rawTrend)
             while (hist.size > 3) hist.removeAt(0)
             when {
@@ -1666,226 +1246,9 @@ class MainActivity : Activity() {
     }
         // ================== Peak forecast ==================
 
-    private fun computePeakForecast(symbol: String, currentPrice: Double, isShort: Boolean): PeakForecast {
-        if (currentPrice <= 0) return PeakForecast.empty()
-        val events: List<LiqEvent>
-        synchronized(liqLock) { events = liqBuffer[symbol]?.toList() ?: return PeakForecast.empty() }
-        if (events.isEmpty()) return PeakForecast.empty()
-
-        val relevant = if (isShort) {
-            events.filter { !it.isLong && it.price > currentPrice * 0.998 }
-        } else {
-            events.filter { it.isLong && it.price < currentPrice * 1.002 }
-        }
-        if (relevant.isEmpty()) return PeakForecast.empty()
-
-        val binSize = currentPrice * 0.001
-        if (binSize <= 0.0) return PeakForecast.empty()
-
-        val bins = HashMap<Long, Double>()
-        for (e in relevant) {
-            val idx = (e.price / binSize).toLong()
-            bins[idx] = (bins[idx] ?: 0.0) + e.usd
-        }
-        val total = bins.values.sum()
-        if (total < 1000.0) return PeakForecast.empty()
-
-        val topBin = bins.maxByOrNull { it.value } ?: return PeakForecast.empty()
-        val peakMid = (topBin.key + 0.5) * binSize
-
-        val threshold = topBin.value * 0.25
-        val allIdx = bins.keys.sorted()
-        val topPos = allIdx.indexOf(topBin.key)
-        if (topPos < 0) return PeakForecast.empty()
-
-        var lowPos = topPos
-        var highPos = topPos
-        var i = topPos
-        while (i > 0 && (bins[allIdx[i - 1]] ?: 0.0) >= threshold) { i--; lowPos = i }
-        i = topPos
-        while (i < allIdx.size - 1 && (bins[allIdx[i + 1]] ?: 0.0) >= threshold) { i++; highPos = i }
-
-        val peakLow = allIdx[lowPos] * binSize
-        val peakHigh = (allIdx[highPos] + 1) * binSize
-        val rangePct = if (peakMid > 0) ((peakHigh - peakLow) / peakMid) * 100 else 100.0
-        val confident = rangePct <= 2.0
-
-        val remain = if (isShort) (peakMid - currentPrice) / currentPrice * 100
-                     else (currentPrice - peakMid) / currentPrice * 100
-
-        if (remain < 0) return PeakForecast.empty()
-
-        return PeakForecast(peakMid, peakLow, peakHigh, remain, confident)
-    }
 
     // ================== Reversal detection ==================
 
-    private fun detectReversalSignal(candles: List<Candle>, liq: LiqStats?, liqThreshold: Double): SignalResult {
-        if (candles.size < 22 || liq == null) return SignalResult("", 0L, "")
-        if (liq.total15m < liqThreshold) return SignalResult("", 0L, "")
-        if (liq.trend != "falling") return SignalResult("", 0L, "")
-
-        val c = candles[candles.size - 2]
-        val p1 = if (candles.size >= 3) candles[candles.size - 3] else null
-        val p2 = if (candles.size >= 4) candles[candles.size - 4] else null
-
-        val body = abs(c.close - c.open)
-        val upperWick = c.high - max(c.open, c.close)
-        val lowerWick = min(c.open, c.close) - c.low
-        val totalHeight = c.high - c.low
-        if (totalHeight <= 0.0 || body <= 0.0) return SignalResult("", 0L, "")
-
-        val isRed = c.close < c.open
-        val isGreen = c.close > c.open
-
-        val isShootingStar = isRed && upperWick >= body * 2.0 && upperWick >= totalHeight * 0.5
-        val isHammer = isGreen && lowerWick >= body * 2.0 && lowerWick >= totalHeight * 0.5
-        val isInvertedHammer = isGreen && upperWick >= body * 2.0 && upperWick >= totalHeight * 0.5
-        val isHangingMan = isRed && lowerWick >= body * 2.0 && lowerWick >= totalHeight * 0.5
-        val isDragonflyDoji = body <= totalHeight * 0.1 && lowerWick >= totalHeight * 0.6 && upperWick < totalHeight * 0.2
-        val isGravestoneDoji = body <= totalHeight * 0.1 && upperWick >= totalHeight * 0.6 && lowerWick < totalHeight * 0.2
-
-        var isBullishEngulfing = false
-        var isBearishEngulfing = false
-        var isPiercingLine = false
-        var isDarkCloudCover = false
-        var isTweezerBottom = false
-        var isTweezerTop = false
-        var isBullishHarami = false
-        var isBearishHarami = false
-
-        if (p1 != null) {
-            val p1Body = abs(p1.close - p1.open)
-            val p1Red = p1.close < p1.open
-            val p1Green = p1.close > p1.open
-
-            isBullishEngulfing = p1Red && isGreen && c.open <= p1.close && c.close >= p1.open && body > p1Body
-            isBearishEngulfing = p1Green && isRed && c.open >= p1.close && c.close <= p1.open && body > p1Body
-
-            if (p1Red && isGreen) {
-                val p1Mid = (p1.open + p1.close) / 2
-                isPiercingLine = c.open < p1.low && c.close > p1Mid && c.close < p1.open
-                isTweezerBottom = abs(c.low - p1.low) <= p1.low * 0.002
-            }
-            if (p1Green && isRed) {
-                val p1Mid = (p1.open + p1.close) / 2
-                isDarkCloudCover = c.open > p1.high && c.close < p1Mid && c.close > p1.open
-                isTweezerTop = abs(c.high - p1.high) <= p1.high * 0.002
-            }
-            if (p1Red && isGreen && p1Body > body * 1.5) {
-                isBullishHarami = c.open > p1.close && c.close < p1.open
-            }
-            if (p1Green && isRed && p1Body > body * 1.5) {
-                isBearishHarami = c.open < p1.close && c.close > p1.open
-            }
-        }
-
-        var isMorningStar = false
-        var isEveningStar = false
-        var isThreeWhiteSoldiers = false
-        var isThreeBlackCrows = false
-        var isThreeInsideUp = false
-        var isThreeInsideDown = false
-        var isThreeOutsideUp = false
-        var isThreeOutsideDown = false
-
-        if (p1 != null && p2 != null) {
-            val p1Body = abs(p1.close - p1.open)
-            val p1Red = p1.close < p1.open
-            val p1Green = p1.close > p1.open
-            val p2Body = abs(p2.close - p2.open)
-            val p2Red = p2.close < p2.open
-            val p2Green = p2.close > p2.open
-
-            if (p2Red && p2Body > 0 && p1Body < p2Body * 0.5 && isGreen) {
-                val p2Mid = (p2.open + p2.close) / 2
-                if (c.close > p2Mid) isMorningStar = true
-            }
-            if (p2Green && p2Body > 0 && p1Body < p2Body * 0.5 && isRed) {
-                val p2Mid = (p2.open + p2.close) / 2
-                if (c.close < p2Mid) isEveningStar = true
-            }
-            if (p2Green && p1Green && isGreen && c.close > p1.close && p1.close > p2.close) {
-                isThreeWhiteSoldiers = true
-            }
-            if (p2Red && p1Red && isRed && c.close < p1.close && p1.close < p2.close) {
-                isThreeBlackCrows = true
-            }
-            if (p2Red && p2Body > p1Body * 1.5 && p1Green && isGreen && c.close > p2.open) {
-                isThreeInsideUp = true
-            }
-            if (p2Green && p2Body > p1Body * 1.5 && p1Red && isRed && c.close < p2.open) {
-                isThreeInsideDown = true
-            }
-            if (p2Red && p1Green && p1Body > p2Body && p1.close >= p2.open && p1.open <= p2.close && isGreen && c.close > p1.close) {
-                isThreeOutsideUp = true
-            }
-            if (p2Green && p1Red && p1Body > p2Body && p1.close <= p2.open && p1.open >= p2.close && isRed && c.close < p1.close) {
-                isThreeOutsideDown = true
-            }
-        }
-
-        val bearishPattern = when {
-            isEveningStar -> "Evening Star"
-            isThreeBlackCrows -> "Three Black Crows"
-            isThreeInsideDown -> "Three Inside Down"
-            isThreeOutsideDown -> "Three Outside Down"
-            isBearishEngulfing -> "Bearish Engulfing"
-            isDarkCloudCover -> "Dark Cloud Cover"
-            isTweezerTop -> "Tweezer Top"
-            isBearishHarami -> "Bearish Harami"
-            isShootingStar -> "Shooting Star"
-            isHangingMan -> "Hanging Man"
-            isGravestoneDoji -> "Gravestone Doji"
-            else -> ""
-        }
-
-        val bullishPattern = when {
-            isMorningStar -> "Morning Star"
-            isThreeWhiteSoldiers -> "Three White Soldiers"
-            isThreeInsideUp -> "Three Inside Up"
-            isThreeOutsideUp -> "Three Outside Up"
-            isBullishEngulfing -> "Bullish Engulfing"
-            isPiercingLine -> "Piercing Line"
-            isTweezerBottom -> "Tweezer Bottom"
-            isBullishHarami -> "Bullish Harami"
-            isHammer -> "Hammer"
-            isInvertedHammer -> "Inverted Hammer"
-            isDragonflyDoji -> "Dragonfly Doji"
-            else -> ""
-        }
-
-        val shortsBurned = !liq.dominantIsLong && liq.shortPct >= 70.0
-        val longsBurned = liq.dominantIsLong && liq.longPct >= 70.0
-
-        val baseType = when {
-            shortsBurned && bearishPattern.isNotEmpty() -> "short"
-            longsBurned && bullishPattern.isNotEmpty() -> "long"
-            else -> return SignalResult("", 0L, "")
-        }
-
-        val pattern = if (baseType == "short") bearishPattern else bullishPattern
-
-        val avgVol20 = candles.subList(candles.size - 22, candles.size - 2)
-            .map { it.volume }
-            .average()
-        val volOk = avgVol20 > 0.0 && (c.volume / avgVol20) >= 1.5
-
-        val recent = candles.subList(candles.size - 20, candles.size)
-        val rangeHigh = recent.maxOf { it.high }
-        val rangeLow = recent.minOf { it.low }
-        val range = rangeHigh - rangeLow
-        val posOk: Boolean
-        if (range <= 0.0) {
-            posOk = false
-        } else {
-            val position = (candles.last().close - rangeLow) / range
-            posOk = if (baseType == "short") position >= 0.70 else position <= 0.30
-        }
-
-        val strength = if (volOk && posOk) "strong" else "weak"
-        return SignalResult(baseType, c.time, strength, pattern)
-    }
 
     // ================== Scan ==================
 
@@ -1896,11 +1259,11 @@ class MainActivity : Activity() {
 
         executor.execute {
             try {
-                val tickers = getTickers()
+                val tickers = BybitApi.getTickers()
                 val turnoverMap = HashMap<String, Double>()
                 tickers.forEach { turnoverMap[it.first] = it.second }
 
-                val pinnedSet = synchronized(pinnedLock) { pinnedSymbols.toSet() }
+                val pinnedSet = synchronized(MarketState.pinnedLock) { MarketState.pinnedSymbols.toSet() }
                 val scanLimit = Prefs.scanLimit(this)
 
                 val topN = tickers
@@ -1912,10 +1275,10 @@ class MainActivity : Activity() {
                 val nowMs = System.currentTimeMillis()
                 val cut15 = nowMs - 15 * 60 * 1000L
                 val liqThreshold = Prefs.liqThreshold(this)
-                val hotSymbols = synchronized(liqLock) {
-                    liqBuffer.keys.filter { sym ->
+                val hotSymbols = synchronized(MarketState.liqLock) {
+                    MarketState.liqBuffer.keys.filter { sym ->
                         if (sym in topN || sym in pinnedSet) return@filter false
-                        val events = liqBuffer[sym] ?: return@filter false
+                        val events = MarketState.liqBuffer[sym] ?: return@filter false
                         var total = 0.0
                         for (e in events) if (e.time >= cut15) total += e.usd
                         total >= liqThreshold
@@ -1938,9 +1301,9 @@ class MainActivity : Activity() {
                         while (true) {
                             val sym = queue.poll() ?: break
                             try {
-                                val candles = fetchKlines(sym, Prefs.signalTf(this), 90).reversed()
+                                val candles = BybitApi.fetchKlines(sym, Prefs.signalTf(this), 90).reversed()
                                 val realTurn24 = turnoverMap[sym] ?: 0.0
-                                val ratio = fetchLongShortRatio(sym)
+                                val ratio = BybitApi.fetchLongShortRatio(sym)
                                 val oiPair = updateOpenInterest(sym)
 
                                 val longRatio = ratio?.first ?: 0.0
@@ -1996,7 +1359,7 @@ class MainActivity : Activity() {
                     for (old in scanResults) {
                         if (combined.size >= limit) break
                         if (old.symbol !in newSymbols) {
-                            val isPinned = synchronized(pinnedLock) { old.symbol in pinnedSymbols }
+                            val isPinned = synchronized(MarketState.pinnedLock) { old.symbol in MarketState.pinnedSymbols }
                             if (isPinned) {
                                 combined.add(old)
                             } else {
@@ -2015,7 +1378,7 @@ class MainActivity : Activity() {
                     startTickerSocket(socketPool)
 
                     refreshLiqStatsCache()
-                    checkNotifications()
+                    NotificationHelper.checkNotifications(this, scanResults)
                     renderList()
                     saveStateAsync()
                     updateBalanceLabel()
@@ -2037,94 +1400,17 @@ class MainActivity : Activity() {
 
     // ================== Fetch API ==================
 
-    private fun fetchTickers(): List<Pair<String, Double>> {
-        val body = httpGet("https://api.bybit.com/v5/market/tickers?category=linear")
-        val json = JSONObject(body)
-        val arr = json.getJSONObject("result").getJSONArray("list")
-        val out = ArrayList<Pair<String, Double>>(arr.length())
-        for (i in 0 until arr.length()) {
-            val o = arr.getJSONObject(i)
-            val sym = o.getString("symbol")
-            val turnover = o.optString("turnover24h", "0").toDoubleOrNull() ?: 0.0
-            out.add(sym to turnover)
-        }
-        return out
-    }
 
-    private fun getTickers(): List<Pair<String, Double>> {
-        val now = System.currentTimeMillis()
-        if (cachedTickers != null && now - cachedTickersTime < TICKERS_TTL_MS) {
-            return cachedTickers!!
-        }
-        val fresh = fetchTickers()
-        cachedTickers = fresh
-        cachedTickersTime = now
-        return fresh
-    }
-    private fun fetchKlines(symbol: String, tf: String, limit: Int): List<Candle> {
-        val body = httpGet("https://api.bybit.com/v5/market/kline?category=linear&symbol=$symbol&interval=$tf&limit=$limit", 15000, 20000)
-        val json = JSONObject(body)
-        val list = json.getJSONObject("result").getJSONArray("list")
-        val out = ArrayList<Candle>(list.length())
-        for (i in 0 until list.length()) {
-            val a = list.getJSONArray(i)
-            out.add(Candle(
-                a.getString(0).toLong(), a.getString(1).toDouble(),
-                a.getString(2).toDouble(), a.getString(3).toDouble(),
-                a.getString(4).toDouble(), a.getString(5).toDouble()
-            ))
-        }
-        return out
-    }
 
-    private fun fetchLongShortRatio(symbol: String): Pair<Double, Double>? {
-        return try {
-            val body = httpGet("https://api.bybit.com/v5/market/account-ratio?category=linear&symbol=$symbol&period=1h&limit=1")
-            val json = JSONObject(body)
-            val list = json.getJSONObject("result").getJSONArray("list")
-            if (list.length() == 0) return null
-            val o = list.getJSONObject(0)
-            o.getString("buyRatio").toDouble() to o.getString("sellRatio").toDouble()
-        } catch (_: Exception) { null }
-    }
 
-    private fun fetchLsHistory(symbol: String, period: String, limit: Int): List<LsPoint> {
-        return try {
-            val body = httpGet("https://api.bybit.com/v5/market/account-ratio?category=linear&symbol=$symbol&period=$period&limit=$limit", 6000, 8000)
-            val json = JSONObject(body)
-            val list = json.getJSONObject("result").getJSONArray("list")
-            val out = ArrayList<LsPoint>(list.length())
-            for (i in 0 until list.length()) {
-                val o = list.getJSONObject(i)
-                val buy = o.getString("buyRatio").toDouble() * 100
-                val sell = o.getString("sellRatio").toDouble() * 100
-                val t = o.getString("timestamp").toLong()
-                out.add(LsPoint(t, buy, sell))
-            }
-            out.reversed()
-        } catch (_: Exception) { emptyList() }
-    }
 
-    private fun fetchRecentTrades(symbol: String, limit: Int = 200): List<Trade> {
-        return try {
-            val body = httpGet("https://api.bybit.com/v5/market/recent-trade?category=linear&symbol=$symbol&limit=$limit", 6000, 8000)
-            val json = JSONObject(body)
-            val arr = json.getJSONObject("result").getJSONArray("list")
-            val out = ArrayList<Trade>(arr.length())
-            for (i in 0 until arr.length()) {
-                val o = arr.getJSONObject(i)
-                out.add(Trade(o.getString("time").toLong(), o.getString("price").toDouble(), o.getString("size").toDouble()))
-            }
-            out.reversed()
-        } catch (_: Exception) { emptyList() }
-    }
 
     // ================== Speed ==================
 
     private fun appendToBuffer(symbol: String, trades: List<Trade>) {
         if (trades.isEmpty()) return
-        synchronized(liveLock) {
-            val buf = liveBuffer.getOrPut(symbol) { ArrayList() }
+        synchronized(MarketState.liveLock) {
+            val buf = MarketState.liveBuffer.getOrPut(symbol) { ArrayList() }
             val cutoff = System.currentTimeMillis() - 60 * 60 * 1000L
             buf.removeAll { it.time < cutoff }
             val lastTime = buf.lastOrNull()?.time ?: 0L
@@ -2136,7 +1422,7 @@ class MainActivity : Activity() {
 
     private fun computeIntrabarSpeed(symbol: String, tfMinutes: Int): SpeedReading? {
         val trades: List<Trade>
-        synchronized(liveLock) { trades = liveBuffer[symbol]?.toList() ?: return null }
+        synchronized(MarketState.liveLock) { trades = MarketState.liveBuffer[symbol]?.toList() ?: return null }
         if (trades.size < 5) return null
 
         val nowMs = System.currentTimeMillis()
@@ -2176,12 +1462,12 @@ class MainActivity : Activity() {
 
         executor.execute {
             for (sym in top) {
-                val trades = fetchRecentTrades(sym)
+                val trades = BybitApi.fetchRecentTrades(sym)
                 if (trades.isNotEmpty()) {
                     appendToBuffer(sym, trades)
                     val sp = computeIntrabarSpeed(sym, currentTfMinutes)
                     if (sp != null) {
-                        synchronized(liveLock) { liveSpeeds[sym] = sp }
+                        synchronized(MarketState.liveLock) { MarketState.liveSpeeds[sym] = sp }
                     }
                 }
             }
@@ -2192,8 +1478,8 @@ class MainActivity : Activity() {
     private fun startSocket(symbol: String) {
         stopSocket()
         tradeSocket = TradeSocket(symbol) { time, price, size, _ ->
-            synchronized(liveLock) {
-                val buf = liveBuffer.getOrPut(symbol) { ArrayList() }
+            synchronized(MarketState.liveLock) {
+                val buf = MarketState.liveBuffer.getOrPut(symbol) { ArrayList() }
                 val lastTime = buf.lastOrNull()?.time ?: 0L
                 if (time > lastTime) {
                     buf.add(Trade(time, price, size))
@@ -2205,7 +1491,7 @@ class MainActivity : Activity() {
             lastChartUpdate = now
             val sp = computeIntrabarSpeed(symbol, currentTfMinutes)
             if (sp != null) {
-                synchronized(liveLock) { liveSpeeds[symbol] = sp }
+                synchronized(MarketState.liveLock) { MarketState.liveSpeeds[symbol] = sp }
             }
         }.also { it.connect() }
     }
@@ -2301,7 +1587,7 @@ class MainActivity : Activity() {
                 "×${"%.1f".format(volRatio)} объём · ${"%+.2f".format(movePct)}% за мин"))
         } else if (bigTurnover && sharpMove) {
             signals.add(Signal("volume", "🚀", "Резкое движение",
-                "${"%+.2f".format(movePct)}% · ${formatMoney(turnover1m)} за мин"))
+                "${"%+.2f".format(movePct)}% · ${UiUtils.formatMoney(turnover1m)} за мин"))
         }
 
         if (signals.isEmpty() && !forceInclude) return null
@@ -2322,19 +1608,19 @@ class MainActivity : Activity() {
         val rawSig = if (newsLikeExplosion) {
             SignalResult("", 0L, "")
         } else {
-            detectReversalSignal(candles, liq, liqThreshold)
+            SignalDetector.detectReversalSignal(candles, liq, liqThreshold)
         }
 
         val sigResult = if (rawSig.strength == "strong") {
-            val lastNotified = synchronized(signalCooldown) { signalCooldown[symbol] ?: 0L }
+            val lastNotified = synchronized(MarketState.signalCooldown) { MarketState.signalCooldown[symbol] ?: 0L }
             if (System.currentTimeMillis() - lastNotified < SIGNAL_COOLDOWN_MS) {
                 rawSig.copy(strength = "weak")
             } else rawSig
         } else rawSig
 
         if (sigResult.type.isNotEmpty()) {
-            synchronized(signalHistoryLock) {
-                signalHistory[symbol] = SymbolSignal(
+            synchronized(MarketState.signalHistoryLock) {
+                MarketState.signalHistory[symbol] = SymbolSignal(
                     type = sigResult.type,
                     strength = sigResult.strength,
                     candleTime = sigResult.candleTime,
@@ -2346,10 +1632,10 @@ class MainActivity : Activity() {
         }
 
         val peak = if (sigResult.type.isNotEmpty()) {
-            computePeakForecast(symbol, curPrice, sigResult.type == "short")
-        } else PeakForecast.empty()
-
-        val obInfo = synchronized(obLock) { obInfos[symbol] }
+    val events = synchronized(MarketState.liqLock) { MarketState.liqBuffer[symbol]?.toList() ?: emptyList() }
+    SignalDetector.computePeakForecast(curPrice, sigResult.type == "short", events)
+} else PeakForecast.empty()
+        val obInfo = synchronized(MarketState.obLock) { MarketState.obInfos[symbol] }
 
         return ScanResult(symbol, curPrice, change15m, turnover24hFromTicker, turn1h,
             longRatio, shortRatio, volRatio, turnover1m, signals,
@@ -2382,9 +1668,9 @@ class MainActivity : Activity() {
         val sorted = sortResults(scanResults)
         val pinnedList = ArrayList<ScanResult>()
         val otherList = ArrayList<ScanResult>()
-        synchronized(pinnedLock) {
+        synchronized(MarketState.pinnedLock) {
             for (r in sorted) {
-                if (r.symbol in pinnedSymbols) pinnedList.add(r) else otherList.add(r)
+                if (r.symbol in MarketState.pinnedSymbols) pinnedList.add(r) else otherList.add(r)
             }
         }
         if (pinnedList.isEmpty() && otherList.isEmpty()) {
@@ -2403,8 +1689,8 @@ class MainActivity : Activity() {
     private fun makeScanRow(r: ScanResult): View {
         val row = LinearLayout(this)
         row.orientation = LinearLayout.VERTICAL
-        val isPinned = synchronized(pinnedLock) { r.symbol in pinnedSymbols }
-        val notifPriority = notificationPriority(r.symbol)
+        val isPinned = synchronized(MarketState.pinnedLock) { r.symbol in MarketState.pinnedSymbols }
+        val notifPriority = NotificationHelper.notificationPriority(r.symbol)
 
         val liq = getCachedLiqStats(r.symbol)
         val liqThreshold = Prefs.liqThreshold(this)
@@ -2485,7 +1771,7 @@ class MainActivity : Activity() {
         row.addView(priceLine)
 
         val volLine = TextView(this)
-        volLine.text = "💰 24ч: ${formatMoney(r.turnover24h)} · 1ч: ${formatMoney(r.turnover1h)}"
+        volLine.text = "💰 24ч: ${UiUtils.formatMoney(r.turnover24h)} · 1ч: ${UiUtils.formatMoney(r.turnover1h)}"
         volLine.setTextColor(Prefs.textDim(this))
         volLine.textSize = 17f
         row.addView(volLine)
@@ -2522,8 +1808,8 @@ class MainActivity : Activity() {
                 else -> "⚪ Churn"
             }
             val deltaSign = if (r.deltaPct1m >= 0) "+" else ""
-            val realDeltaStr = if (r.realDeltaUsd >= 0) "+${formatMoney(r.realDeltaUsd)}"
-                               else "-${formatMoney(-r.realDeltaUsd)}"
+            val realDeltaStr = if (r.realDeltaUsd >= 0) "+${UiUtils.formatMoney(r.realDeltaUsd)}"
+                               else "-${UiUtils.formatMoney(-r.realDeltaUsd)}"
             deltaLine.text = "Δ 1м: $deltaEmoji $deltaSign${"%.0f".format(r.deltaPct1m)}% ($realDeltaStr buy/sell)  ·  $flowLabel"
             deltaLine.setTextColor(deltaColor)
             deltaLine.textSize = 16f
@@ -2540,7 +1826,7 @@ class MainActivity : Activity() {
                 "falling" -> "🪫 затухает"
                 else -> "➡️ стабильно"
             }
-            liqLine.text = "💥 Ликвидации: ${formatMoney(liq.total15m)} · $direction ${"%.0f".format(domPct)}% · $trendIcon"
+            liqLine.text = "💥 Ликвидации: ${UiUtils.formatMoney(liq.total15m)} · $direction ${"%.0f".format(domPct)}% · $trendIcon"
             liqLine.textSize = 18f
             liqLine.setTypeface(null, Typeface.BOLD)
             liqLine.setTextColor(
@@ -2581,7 +1867,7 @@ class MainActivity : Activity() {
                 else -> ""
             }
             val oiUsd = r.openInterest * r.price
-            oiLine.text = "📊 OI: ${formatMoney(r.openInterest)} (~${formatMoney(oiUsd)}) · $oiChangeStr$trendIcon"
+            oiLine.text = "📊 OI: ${UiUtils.formatMoney(r.openInterest)} (~${UiUtils.formatMoney(oiUsd)}) · $oiChangeStr$trendIcon"
             oiLine.setTextColor(
                 when {
                     r.openInterestChange > 1.0 -> Color.rgb(120, 200, 140)
@@ -2610,7 +1896,7 @@ class MainActivity : Activity() {
         lsLine.textSize = 18f
         row.addView(lsLine)
 
-        val obInfo = synchronized(obLock) { obInfos[r.symbol] }
+        val obInfo = synchronized(MarketState.obLock) { MarketState.obInfos[r.symbol] }
         val obLine = TextView(this)
         if (obInfo != null) {
             val imb = obInfo.imbalance
@@ -2628,10 +1914,10 @@ class MainActivity : Activity() {
             if (obInfo.bidWallPrice > 0 || obInfo.askWallPrice > 0) {
                 val wallLine = TextView(this)
                 val bidStr = if (obInfo.bidWallPrice > 0)
-                    "🟢 ${"%.4f".format(obInfo.bidWallPrice)} (${formatMoney(obInfo.bidWallUsd)})"
+                    "🟢 ${"%.4f".format(obInfo.bidWallPrice)} (${UiUtils.formatMoney(obInfo.bidWallUsd)})"
                 else "—"
                 val askStr = if (obInfo.askWallPrice > 0)
-                    "🔴 ${"%.4f".format(obInfo.askWallPrice)} (${formatMoney(obInfo.askWallUsd)})"
+                    "🔴 ${"%.4f".format(obInfo.askWallPrice)} (${UiUtils.formatMoney(obInfo.askWallUsd)})"
                 else "—"
                 wallLine.text = "   Bid: $bidStr  ·  Ask: $askStr"
                 wallLine.setTextColor(Prefs.textDim(this))
@@ -2646,7 +1932,7 @@ class MainActivity : Activity() {
             row.addView(obLine)
         }
 
-        val sp = synchronized(liveLock) { liveSpeeds[r.symbol] }
+        val sp = synchronized(MarketState.liveLock) { MarketState.liveSpeeds[r.symbol] }
         if (sp != null) {
             val spLine = TextView(this)
             val icon = when {
@@ -2667,7 +1953,7 @@ class MainActivity : Activity() {
         }
 
         if (r.signalType.isEmpty()) {
-            val hist = synchronized(signalHistoryLock) { signalHistory[r.symbol] }
+            val hist = synchronized(MarketState.signalHistoryLock) { MarketState.signalHistory[r.symbol] }
             if (hist != null && hist.candleTime > 0L) {
                 val ageMs = System.currentTimeMillis() - hist.detectedAt
                 val ageMin = ageMs / 60_000L
@@ -2801,8 +2087,8 @@ class MainActivity : Activity() {
     private fun buildContextSnapshot(r: ScanResult): PaperTrading.ContextSnapshot {
         val liq = getCachedLiqStats(r.symbol)
         val liqThreshold = Prefs.liqThreshold(this)
-        val sp = synchronized(liveLock) { liveSpeeds[r.symbol] }
-        val obInfo = synchronized(obLock) { obInfos[r.symbol] }
+        val sp = synchronized(MarketState.liveLock) { MarketState.liveSpeeds[r.symbol] }
+        val obInfo = synchronized(MarketState.obLock) { MarketState.obInfos[r.symbol] }
 
         val hasCascade = liq != null && liq.total15m >= liqThreshold
 
@@ -2850,12 +2136,6 @@ class MainActivity : Activity() {
         return badge
     }
 
-    private fun formatMoney(v: Double): String = when {
-        v >= 1_000_000_000 -> "${"%.2f".format(v / 1_000_000_000)}B"
-        v >= 1_000_000 -> "${"%.2f".format(v / 1_000_000)}M"
-        v >= 1_000 -> "${"%.2f".format(v / 1_000)}K"
-        else -> "${"%.0f".format(v)}"
-    }
 
     // ================== Chart mode ==================
 
@@ -2876,10 +2156,10 @@ class MainActivity : Activity() {
         }
 
         executor.execute {
-            if (synchronized(obLock) { obInfos[symbol] } == null) {
-                val info = fetchOrderbookInfo(symbol)
+            if (synchronized(MarketState.obLock) { MarketState.obInfos[symbol] } == null) {
+                val info = BybitApi.fetchOrderbookInfo(symbol)
                 if (info != null) {
-                    synchronized(obLock) { obInfos[symbol] = info }
+                    synchronized(MarketState.obLock) { MarketState.obInfos[symbol] = info }
                 }
             }
         }
@@ -2899,10 +2179,10 @@ class MainActivity : Activity() {
                 val tfLocal = currentTf
 
                 val candlesFuture = CompletableFuture.supplyAsync(
-                    { fetchKlines(symbol, tfLocal, limit).reversed() }, executor
+                    { BybitApi.fetchKlines(symbol, tfLocal, limit).reversed() }, executor
                 )
                 val lsFuture = CompletableFuture.supplyAsync(
-                    { try { fetchLsHistory(symbol, lsPeriod, 100) } catch (e: Exception) { emptyList<LsPoint>() } }, executor
+                    { try { BybitApi.fetchLsHistory(symbol, lsPeriod, 100) } catch (e: Exception) { emptyList<LsPoint>() } }, executor
                 )
 
                 val candles = try { candlesFuture.get(25, TimeUnit.SECONDS) } catch (e: Exception) {
@@ -2938,10 +2218,10 @@ class MainActivity : Activity() {
                 val tfLocal = currentTf
 
                 val candlesFuture = CompletableFuture.supplyAsync(
-                    { fetchKlines(sym, tfLocal, limit).reversed() }, executor
+                    { BybitApi.fetchKlines(sym, tfLocal, limit).reversed() }, executor
                 )
                 val lsFuture = CompletableFuture.supplyAsync(
-                    { try { fetchLsHistory(sym, lsPeriod, 100) } catch (e: Exception) { emptyList<LsPoint>() } }, executor
+                    { try { BybitApi.fetchLsHistory(sym, lsPeriod, 100) } catch (e: Exception) { emptyList<LsPoint>() } }, executor
                 )
                 val candles = try { candlesFuture.get(25, TimeUnit.SECONDS) } catch (e: Exception) {
                     emptyList<Candle>()
@@ -2958,7 +2238,7 @@ class MainActivity : Activity() {
                     chartView.setData(candles, offset, visibleCount, Prefs.chartType(this), Prefs.theme(this))
                     chartView.setLsPoints(ls)
                     chartView.setSignalMarkers(getSignalMarkers(currentSymbol))
-                    val obInfo = synchronized(obLock) { obInfos[currentSymbol] }
+                    val obInfo = synchronized(MarketState.obLock) { MarketState.obInfos[currentSymbol] }
                     chartView.setWalls(
                         obInfo?.bidWallPrice ?: 0.0, obInfo?.bidWallUsd ?: 0.0,
                         obInfo?.askWallPrice ?: 0.0, obInfo?.askWallUsd ?: 0.0

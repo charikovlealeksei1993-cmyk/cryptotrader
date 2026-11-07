@@ -342,7 +342,7 @@ class ChartView(context: Context) : View(context) {
                 canvas.drawRect(x - bodyW / 2, t1, x + bodyW / 2, max(b1, t1 + 2f), paint)
             }
         }
-            if (bidWallPrice > 0 && bidWallPrice in minPAdj..maxPAdj) {
+        if (bidWallPrice > 0 && bidWallPrice in minPAdj..maxPAdj) {
             val yBid = candleTop + ((maxPAdj - bidWallPrice) / rng * candleH).toFloat()
             val bidPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = Color.rgb(60, 200, 100)
@@ -397,8 +397,7 @@ class ChartView(context: Context) : View(context) {
             canvas.drawText("▲ ASK ${"%.4f".format(askWallPrice)} (${formatUsd(askWallUsd)})",
                 pL + 4, candleTop - 8, edgePaint)
         }
-
-        canvas.save()
+canvas.save()
         canvas.clipRect(pL, volTop, w - pR, volTop + volH)
 
         slice.forEachIndexed { i, c ->
@@ -517,6 +516,27 @@ class ChartView(context: Context) : View(context) {
         else -> "${"%.0f".format(v)}"
     }
 
+    /**
+     * Бинарный поиск: первая свеча с time >= markerTime.
+     * Свечи отсортированы по time по возрастанию (гарантирует Bybit API).
+     * Возвращает -1, если такой свечи нет в диапазоне [start, endExclusive).
+     */
+    private fun findCandleIndexByTime(markerTime: Long, start: Int, endExclusive: Int): Int {
+        var lo = start
+        var hi = endExclusive - 1
+        var result = -1
+        while (lo <= hi) {
+            val mid = (lo + hi) ushr 1
+            if (candles[mid].time >= markerTime) {
+                result = mid
+                hi = mid - 1
+            } else {
+                lo = mid + 1
+            }
+        }
+        return result
+    }
+
     private fun drawSignalMarkers(canvas: Canvas) {
         if (signalMarkers.isEmpty() || candles.isEmpty()) return
 
@@ -550,14 +570,8 @@ class ChartView(context: Context) : View(context) {
             // Быстрая проверка — маркер в видимом временном диапазоне?
             if (marker.time < startTime || marker.time > endTime + 60_000L) continue
 
-            // Найти индекс свечи по времени
-            var candleIdx = -1
-            for (i in offset until (offset + sliceSize)) {
-                if (candles[i].time >= marker.time) {
-                    candleIdx = i
-                    break
-                }
-            }
+            // Бинарный поиск нужной свечи (O(log n) вместо O(n))
+            val candleIdx = findCandleIndexByTime(marker.time, offset, offset + sliceSize)
             if (candleIdx < 0) continue
 
             val localIdx = candleIdx - offset
@@ -597,7 +611,7 @@ class ChartView(context: Context) : View(context) {
                 canvas.drawText("⬆", x, yL + 45f, arrowPaint)
             }
 
-                        if (marker.pattern.isNotEmpty()) {
+            if (marker.pattern.isNotEmpty()) {
                 val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = markerColor
                     textSize = 26f
