@@ -192,6 +192,16 @@ object Persistence {
                 })
             }
         })
+        r.accumulation?.let { acc ->
+            put("acc", JSONObject().apply {
+                put("type", acc.type)
+                put("level", acc.level)
+                put("oiChangePct", acc.oiChangePct)
+                put("oiBarsPositive", acc.oiBarsPositive)
+                put("rangePct", acc.rangePct)
+                put("deltaUsd", acc.deltaUsd)
+            })
+        }
     }
 
     private fun decScanResult(o: JSONObject): ScanResult {
@@ -203,6 +213,16 @@ object Persistence {
                 s.optString("type"), s.optString("emoji"),
                 s.optString("name"), s.optString("detail")
             ))
+        }
+        val accumulation = o.optJSONObject("acc")?.let { a ->
+            AccumulationInfo(
+                type = a.optString("type", ""),
+                level = a.optString("level", ""),
+                oiChangePct = a.optDouble("oiChangePct", 0.0),
+                oiBarsPositive = a.optInt("oiBarsPositive", 0),
+                rangePct = a.optDouble("rangePct", 0.0),
+                deltaUsd = a.optDouble("deltaUsd", 0.0)
+            )
         }
         return ScanResult(
             symbol = o.getString("symbol"), price = o.getDouble("price"),
@@ -227,7 +247,8 @@ object Persistence {
             bidWallPrice = o.optDouble("bidWallPrice", 0.0),
             bidWallUsd = o.optDouble("bidWallUsd", 0.0),
             askWallPrice = o.optDouble("askWallPrice", 0.0),
-            askWallUsd = o.optDouble("askWallUsd", 0.0)
+            askWallUsd = o.optDouble("askWallUsd", 0.0),
+            accumulation = accumulation
         )
     }
 

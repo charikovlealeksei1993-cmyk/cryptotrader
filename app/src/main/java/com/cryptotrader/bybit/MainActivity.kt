@@ -962,37 +962,6 @@ class MainActivity : Activity() {
 
     // ================== OI / L-S / Trend ==================
 
-    private fun updateOpenInterest(symbol: String): Pair<Double, Double>? {
-        return try {
-            val body = BybitApi.httpGet(
-                "https://api.bybit.com/v5/market/open-interest?category=linear&symbol=$symbol&intervalTime=5min&limit=2",
-                5000, 6000
-            )
-            val json = JSONObject(body)
-            val list = json.getJSONObject("result").getJSONArray("list")
-            if (list.length() < 1) return null
-
-            val latest = list.getJSONObject(0).getString("openInterest").toDoubleOrNull() ?: return null
-
-            var change = 0.0
-            if (list.length() >= 2) {
-                val prev = list.getJSONObject(1).getString("openInterest").toDoubleOrNull()
-                if (prev != null && prev > 0) {
-                    change = (latest - prev) / prev * 100
-                }
-            }
-
-            val now = System.currentTimeMillis()
-            synchronized(MarketState.oiLock) {
-                MarketState.openInterestHistory[symbol] = latest
-                MarketState.openInterestTimestamp[symbol] = now
-            }
-
-            latest to change
-        } catch (_: Exception) {
-            null
-        }
-    }
 
     private fun updateLongRatioHistory(symbol: String, longRatio: Double) {
         synchronized(MarketState.longRatioLock) {
@@ -1304,7 +1273,17 @@ class MainActivity : Activity() {
                                 val candles = BybitApi.fetchKlines(sym, Prefs.signalTf(this), 90).reversed()
                                 val realTurn24 = turnoverMap[sym] ?: 0.0
                                 val ratio = BybitApi.fetchLongShortRatio(sym)
-                                val oiPair = updateOpenInterest(sym)
+                                val oiHist = BybitApi.fetchOiHistory(sym, 9)
+                                val oiPair = if (oiHist != null && oiHist.size >= 2) {
+                                    val oiLatest = oiHist.last()
+                                    val oiPrev = oiHist[oiHist.size - 2]
+                                    val oiChg = if (oiPrev > 0) (oiLatest - oiPrev) / oiPrev * 100 else 0.0
+                                    synchronized(MarketState.oiLock) {
+                                        MarketState.openInterestHistory[sym] = oiLatest
+                                        MarketState.openInterestTimestamp[sym] = System.currentTimeMillis()
+                                    }
+                                    oiLatest to oiChg
+                                } else null
 
                                 val longRatio = ratio?.first ?: 0.0
                                 val longRatioChange = computeLongRatioChange(sym, longRatio)
@@ -1321,7 +1300,9 @@ class MainActivity : Activity() {
                                     openInterest = oiPair?.first ?: 0.0,
                                     openInterestChange = oiChange,
                                     longRatioChange = longRatioChange,
-                                    oiTrend = oiTrend
+                                    oiTrend = oiTrend,
+                                    oiHistory = oiHist,
+                                    deltaBuckets = tradeDeltaAnalyzer.getDeltaBuckets(sym, 9)
                                 )
                                 if (res != null) results.add(res)
                             } catch (_: Exception) {}
@@ -1513,7 +1494,9 @@ class MainActivity : Activity() {
         openInterest: Double = 0.0,
         openInterestChange: Double = 0.0,
         longRatioChange: Double = 0.0,
-        oiTrend: String = "stable"
+        oiTrend: String = "stable",
+        oiHistory: List<Double>? = null,
+        deltaBuckets: List<Double> = emptyList()
     ): ScanResult? {
         if (candles.size < 60) return null
         val signals = ArrayList<Signal>()
@@ -1635,6 +1618,9 @@ class MainActivity : Activity() {
     val events = synchronized(MarketState.liqLock) { MarketState.liqBuffer[symbol]?.toList() ?: emptyList() }
     SignalDetector.computePeakForecast(curPrice, sigResult.type == "short", events)
 } else PeakForecast.empty()
+val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.size >= 9) {
+    SignalDetector.detectAccumulation(candles, oiHistory, deltaBuckets)
+} else null
         val obInfo = synchronized(MarketState.obLock) { MarketState.obInfos[symbol] }
 
         return ScanResult(symbol, curPrice, change15m, turnover24hFromTicker, turn1h,
@@ -1658,7 +1644,8 @@ class MainActivity : Activity() {
             deltaUsd1m = deltaUsd1m,
             realDeltaUsd = 0.0,
             flowStatus = flowStatus,
-            priceAt15mAgo = price15)
+            priceAt15mAgo = price15,
+            accumulation = accumulation)
     }
 
     // ================== Render list ==================
@@ -1716,6 +1703,14 @@ class MainActivity : Activity() {
         lp.setMargins(8, 6, 8, 6)
         row.layoutParams = lp
 
+        r.accumulation?.let { acc ->
+            if (acc.level.isNotEmpty()) {
+                val accEmoji = when (acc.level) { "strong" -> "🔥"; "medium" -> "🟢"; else -> "🟡" }
+                val accDir = if (acc.type == "long") "В ЛОНГ" else "В ШОРТ"
+                val accColor = when (acc.level) { "strong" -> Color.rgb(200, 60, 20); "medium" -> Color.rgb(30, 120, 60); else -> Color.rgb(140, 110, 20) }
+                row.addView(makeSignalBadge("$accEmoji НАКОПЛЕНИЕ $accDir", accColor))
+            }
+        }
         val patternSuffix = if (r.signalPattern.isNotEmpty()) " — ${r.signalPattern}" else ""
         if (r.signalType == "short" && r.signalStrength == "strong") {
             row.addView(makeSignalBadge("🟢 ВХОД В ШОРТ$patternSuffix", Color.rgb(30, 120, 60)))
@@ -1974,6 +1969,20 @@ class MainActivity : Activity() {
             }
         }
 
+        r.accumulation?.let { acc ->
+            if (acc.level.isNotEmpty()) {
+                val accEmoji = when (acc.level) { "strong" -> "🔥"; "medium" -> "🟢"; else -> "🟡" }
+                val accDir = if (acc.type == "long") "лонг" else "шорт"
+                val accColor = when (acc.level) { "strong" -> Color.rgb(255, 120, 60); "medium" -> Color.rgb(120, 200, 140); else -> Color.rgb(255, 200, 60) }
+                val accLine = TextView(this)
+                accLine.text = "$accEmoji Накопление $accDir · OI +${"%.2f".format(acc.oiChangePct)}% (${acc.oiBarsPositive}/9) · Диапазон ${"%.2f".format(acc.rangePct)}% · Delta ${UiUtils.formatMoney(acc.deltaUsd)}"
+                accLine.setTextColor(accColor)
+                accLine.textSize = 17f
+                accLine.setTypeface(null, Typeface.BOLD)
+                accLine.setPadding(0, 4, 0, 0)
+                row.addView(accLine)
+            }
+        }
         row.addView(makePaperTradingRow(r))
 
         row.setOnClickListener { openChart(r.symbol) }

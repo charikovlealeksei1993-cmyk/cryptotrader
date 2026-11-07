@@ -59,6 +59,15 @@ data class PeakForecast(
     }
 }
 
+data class AccumulationInfo(
+    val type: String = "",          // "long" / "short" / ""
+    val level: String = "",         // "weak" / "medium" / "strong" / ""
+    val oiChangePct: Double = 0.0,  // общий рост OI за 45 мин, %
+    val oiBarsPositive: Int = 0,    // сколько баров из 9 были +
+    val rangePct: Double = 0.0,     // диапазон цены за 45 мин, %
+    val deltaUsd: Double = 0.0      // buy - sell за 45 мин, USD
+)
+
 data class ScanResult(
     val symbol: String,
     val price: Double,
@@ -92,7 +101,8 @@ data class ScanResult(
     val deltaUsd1m: Double = 0.0,
     val realDeltaUsd: Double = 0.0,
     val flowStatus: String = "",
-    val priceAt15mAgo: Double = 0.0
+    val priceAt15mAgo: Double = 0.0,
+    val accumulation: AccumulationInfo? = null
 ) {
     val score: Int get() = signals.size
 }

@@ -234,4 +234,87 @@ object SignalDetector {
 
         return PeakForecast(peakMid, peakLow, peakHigh, remain, confident)
     }
+
+    // ================== Accumulation detection ==================
+
+    /**
+     * Ищет накопление позиции за последние 45 минут (9 × M5-баров, склеенных из M1).
+     *
+     * @param m1Candles  M1-свечи (нужно ≥ 45)
+     * @param oiHistory  OI за 9 закрытых M5-баров (от старых к новым)
+     * @param deltaBuckets  buy-sell USD за 9 закрытых M5-баров (от старых к новым)
+     * @return AccumulationInfo или null, если нет сигнала
+     */
+    fun detectAccumulation(
+        m1Candles: List<Candle>,
+        oiHistory: List<Double>,
+        deltaBuckets: List<Double>
+    ): AccumulationInfo? {
+        if (m1Candles.size < 45) return null
+        if (oiHistory.size < 9) return null
+        if (deltaBuckets.size < 9) return null
+
+        // Проверка, что свечи действительно M1 (60 сек)
+        val tf = m1Candles[m1Candles.size - 1].time - m1Candles[m1Candles.size - 2].time
+        if (tf !in 55_000..65_000) return null
+
+        // Склеиваем последние 45 M1 в 9 M5-баров
+        val start = m1Candles.size - 45
+        val m5 = ArrayList<Candle>(9)
+        for (i in 0 until 9) {
+            val from = start + i * 5
+            val to = from + 5
+            if (to > m1Candles.size) return null
+            val chunk = m1Candles.subList(from, to)
+            m5.add(Candle(
+                time = chunk.first().time,
+                open = chunk.first().open,
+                high = chunk.maxOf { it.high },
+                low = chunk.minOf { it.low },
+                close = chunk.last().close,
+                volume = chunk.sumOf { it.volume }
+            ))
+        }
+
+        // Диапазон цены за 45 минут
+        val maxHigh = m5.maxOf { it.high }
+        val minLow = m5.minOf { it.low }
+        val lastClose = m5.last().close
+        if (lastClose <= 0) return null
+        val rangePct = (maxHigh - minLow) / lastClose * 100
+
+        // OI: общий рост и сколько баров росли
+        val oiStart = oiHistory[0]
+        val oiEnd = oiHistory.last()
+        if (oiStart <= 0 || oiEnd <= 0) return null
+        val oiChangePct = (oiEnd - oiStart) / oiStart * 100
+        if (oiChangePct < 1.0) return null
+
+        var barsPositive = 0
+        for (i in 1 until oiHistory.size) {
+            if (oiHistory[i] > oiHistory[i - 1]) barsPositive++
+        }
+
+        // Дельта за 45 минут
+        val deltaSum = deltaBuckets.sum()
+        val absDelta = abs(deltaSum)
+
+        // Определяем уровень
+        val level = when {
+            oiChangePct >= 3.5 && barsPositive >= 8 && rangePct < 0.8 && absDelta > 300_000 -> "strong"
+            oiChangePct >= 2.0 && barsPositive >= 7 && rangePct < 1.0 && absDelta > 150_000 -> "medium"
+            oiChangePct >= 1.0 && barsPositive >= 5 && rangePct < 1.2 && absDelta > 50_000 -> "weak"
+            else -> return null
+        }
+
+        val isLong = deltaSum > 0
+        return AccumulationInfo(
+            type = if (isLong) "long" else "short",
+            level = level,
+            oiChangePct = oiChangePct,
+            oiBarsPositive = barsPositive,
+            rangePct = rangePct,
+            deltaUsd = deltaSum
+        )
+    }
 }
