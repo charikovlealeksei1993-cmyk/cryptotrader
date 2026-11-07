@@ -1,0 +1,21 @@
+{
+  "allFiles": [
+    {
+      "file": "/storage/emulated/0/CodeOnTheGoProjects/Crypto Trader/app/src/main/res/layout/activity_main.xml",
+      "selection": {
+        "end": {
+          "column": 15,
+          "index": 628,
+          "line": 19
+        },
+        "start": {
+          "column": 15,
+          "index": 628,
+          "line": 19
+        }
+      }
+    }
+  ],
+  "projectPath": "/storage/emulated/0/CodeOnTheGoProjects/Crypto Trader",
+  "selectedFile": "/storage/emulated/0/CodeOnTheGoProjects/Crypto Trader/app/src/main/res/layout/activity_main.xml"
+}

@@ -1,0 +1,21 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="CRYPTO TRADER"
+        android:textSize="28sp"
+        android:textStyle="bold"
+        android:padding="20dp" />
+
+    <Button
+        android:id="@+id/bybit_button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Подключить Bybit"
+        android:layout_margin="20dp" />
+
+</LinearLayout>

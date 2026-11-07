@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "183249208501",
+    "project_id": "cryptotrader-257b4",
+    "storage_bucket": "cryptotrader-257b4.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:183249208501:android:ee4b603183b7ca6edceafc",
+        "android_client_info": {
+          "package_name": "com.cryptotrader.bybit"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCz_vrGzabiuTr7a6-GCbLkv59bXmGZUxg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
