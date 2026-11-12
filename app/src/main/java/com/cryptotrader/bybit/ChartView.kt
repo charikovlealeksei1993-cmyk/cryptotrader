@@ -671,20 +671,6 @@ canvas.save()
         val liqs = ArrayList<CandleMarker>()
         if (candles.isNotEmpty()) {
             val stepMs = if (candles.size >= 2) candles[1].time - candles[0].time else 60_000L
-            for (i in 20 until candles.size) {
-                var sum = 0.0
-                for (j in i - 20 until i) sum += candles[j].volume
-                val avg = sum / 20.0
-                if (avg <= 0.0) continue
-                val ratio = candles[i].volume / avg
-                val lvl = when {
-                    ratio >= 10.0 -> 3
-                    ratio >= 5.0 -> 2
-                    ratio >= 2.5 -> 1
-                    else -> 0
-                }
-                if (lvl > 0) vols.add(CandleMarker(i, "vol", lvl))
-            }
             for (e in chartEventsRaw) {
                 var idx = -1
                 var lo = 0
@@ -702,6 +688,7 @@ canvas.save()
                 if (idx < 0) continue
                 val cm = CandleMarker(idx, e.type, e.level)
                 when (e.type) {
+                    "vol" -> vols.add(cm)
                     "accel" -> accels.add(cm)
                     "liq" -> liqs.add(cm)
                 }

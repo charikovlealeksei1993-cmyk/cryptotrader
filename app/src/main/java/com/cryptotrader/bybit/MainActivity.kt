@@ -755,6 +755,14 @@ class MainActivity : Activity() {
                 }
                 addChartEvent(r.symbol, ChartEvent(candleStart, "liq", level))
             }
+            if (r.signals.any { it.type == "volume" }) {
+                val lvl = when {
+                    r.volRatio >= 10.0 -> 3
+                    r.volRatio >= 5.0 -> 2
+                    else -> 1
+                }
+                addChartEvent(r.symbol, ChartEvent(candleStart, "vol", lvl))
+            }
         }
 
         synchronized(MarketState.chartEventsLock) {
