@@ -52,6 +52,9 @@ class MainActivity : Activity() {
         var sharedScanResults: List<ScanResult> = ArrayList()
     }
 
+    @Volatile
+    private var isDestroyed = false
+
     private lateinit var root: LinearLayout
     private lateinit var listFrame: FrameLayout
     private lateinit var scanOverlay: LinearLayout
@@ -277,6 +280,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        isDestroyed = true
         super.onDestroy()
         saveStateSync()
         stopSocket()
@@ -697,6 +701,7 @@ class MainActivity : Activity() {
                 }
 
                 Handler(Looper.getMainLooper()).post {
+                    if (isDestroyed) return@post
                     chartLoading = false
                     if (candles.isEmpty()) {
                         chartTitle.text = "$currentSymbol · $currentTfLabel (ошибка)"
@@ -710,6 +715,7 @@ class MainActivity : Activity() {
                 }
             } catch (e: Exception) {
                 Handler(Looper.getMainLooper()).post {
+                    if (isDestroyed) return@post
                     chartLoading = false
                     chartTitle.text = "$currentSymbol · $currentTfLabel (ошибка)"
                     chartTitle.setTextColor(Color.rgb(255, 100, 100))
@@ -870,6 +876,19 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun isWeakConflict(r: ScanResult): Boolean {
+        if (r.signalStrength != "weak") return false
+        val liq = getCachedLiqStats(r.symbol)
+        if (r.signalType == "short") {
+            if (r.change15m > 5.0) return true
+            if (liq != null && liq.shortPct > 70.0) return true
+        } else if (r.signalType == "long") {
+            if (r.change15m < -5.0) return true
+            if (liq != null && liq.longPct > 70.0) return true
+        }
+        return false
+    }
+
     private fun buildCardText(r: ScanResult): String {
         val sb = StringBuilder()
         val liqThreshold = Prefs.liqThreshold(this)
@@ -888,15 +907,15 @@ class MainActivity : Activity() {
                 sb.appendLine("🟢 ВХОД В ШОРТ$patternSuffix")
             r.signalType == "long" && r.signalStrength == "strong" ->
                 sb.appendLine("🟢 ВХОД В ЛОНГ$patternSuffix")
-            r.signalType == "short" && r.signalStrength == "weak" ->
+            r.signalType == "short" && r.signalStrength == "weak" && !isWeakConflict(r) ->
                 sb.appendLine("🟡 Возможен вход в шорт (объём/позиция не дотянули)$patternSuffix")
-            r.signalType == "long" && r.signalStrength == "weak" ->
+            r.signalType == "long" && r.signalStrength == "weak" && !isWeakConflict(r) ->
                 sb.appendLine("🟡 Возможен вход в лонг (объём/позиция не дотянули)$patternSuffix")
         }
 
         val scoreEmoji = when {
             r.signalStrength == "strong" -> "🟢🚀"
-            r.signalStrength == "weak" -> "🟡🚀"
+            r.signalStrength == "weak" && !isWeakConflict(r) -> "🟡🚀"
             r.accumulation?.level == "strong" -> "🔥"
             r.accumulation?.level == "medium" -> "🟢"
             r.accumulation?.level == "weak" -> "🟡"
@@ -921,8 +940,11 @@ class MainActivity : Activity() {
                 else -> "⚪"
             }
             val deltaSign = if (r.deltaPct1m >= 0) "+" else ""
-            val realDeltaStr = if (r.realDeltaUsd >= 0) "+${UiUtils.formatMoney(r.realDeltaUsd)}"
-                               else "-${UiUtils.formatMoney(-r.realDeltaUsd)}"
+            val realDeltaStr = when {
+                r.realDeltaUsd == 0.0 -> "—"
+                r.realDeltaUsd > 0 -> "+${UiUtils.formatMoney(r.realDeltaUsd)}"
+                else -> "-${UiUtils.formatMoney(-r.realDeltaUsd)}"
+            }
             val flowLabel = when (r.flowStatus) {
                 "new_long" -> "New Money ↑"
                 "short_squeeze" -> "Short Squeeze"
@@ -1000,7 +1022,7 @@ class MainActivity : Activity() {
                 else -> "баланс"
             }
             sb.appendLine("⚖️ Стакан: $sign${"%.2f".format(imb)} ($label)")
-            if (obInfo.bidWallPrice > 0 || obInfo.askWallPrice > 0) {
+            if ((obInfo.bidWallPrice > 0 || obInfo.askWallPrice > 0) && (obInfo.bidWallUsd >= 1000.0 || obInfo.askWallUsd >= 1000.0)) {
                 val bidStar = if (obInfo.bidWallUsd > obInfo.askWallUsd) " ★" else ""
                 val askStar = if (obInfo.askWallUsd > obInfo.bidWallUsd) " ★" else ""
                 sb.appendLine("   Bid wall: ${"%.4f".format(obInfo.bidWallPrice)} (${UiUtils.formatMoney(obInfo.bidWallUsd)})$bidStar")
@@ -1199,6 +1221,7 @@ class MainActivity : Activity() {
             }
 
             Handler(Looper.getMainLooper()).post {
+                    if (isDestroyed) return@post
                 NotificationHelper.checkNotifications(this, scanResults)
                 requestRender()
                 updateBalanceLabel()
@@ -1306,6 +1329,7 @@ class MainActivity : Activity() {
 
     private fun onTickerPrice(symbol: String, price: Double) {
         Handler(Looper.getMainLooper()).post {
+                    if (isDestroyed) return@post
             val idx = scanResults.indexOfFirst { it.symbol == symbol }
             if (idx < 0) return@post
             val old = scanResults[idx]
@@ -1518,6 +1542,7 @@ class MainActivity : Activity() {
                             val done = doneCount.incrementAndGet()
                             if (!firstScanDone) {
                                 Handler(Looper.getMainLooper()).post {
+                    if (isDestroyed) return@post
                                     scanOverlayText.text = "Сканирую $done/$total..."
                                 }
                             }
@@ -1542,6 +1567,7 @@ class MainActivity : Activity() {
                 }
 
                 Handler(Looper.getMainLooper()).post {
+                    if (isDestroyed) return@post
                     val now = System.currentTimeMillis()
                     val limit = Prefs.scanLimit(this)
                     val newSymbols = sorted.map { it.symbol }.toSet()
@@ -1581,6 +1607,7 @@ class MainActivity : Activity() {
                 }
             } catch (e: Exception) {
                 Handler(Looper.getMainLooper()).post {
+                    if (isDestroyed) return@post
                     if (!firstScanDone) {
                         showScanOverlay(false)
                         firstScanDone = true
@@ -1724,7 +1751,7 @@ class MainActivity : Activity() {
                     }
                 }
             }
-            Handler(Looper.getMainLooper()).post { requestRender() }
+            Handler(Looper.getMainLooper()).post { if (isDestroyed) return@post; requestRender() }
         }
     }
 
@@ -1988,16 +2015,16 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
             row.addView(makeSignalBadge("🟢 ВХОД В ШОРТ$patternSuffix", Color.rgb(30, 120, 60)))
         } else if (r.signalType == "long" && r.signalStrength == "strong") {
             row.addView(makeSignalBadge("🟢 ВХОД В ЛОНГ$patternSuffix", Color.rgb(30, 120, 60)))
-        } else if (r.signalType == "short" && r.signalStrength == "weak") {
+        } else if (r.signalType == "short" && r.signalStrength == "weak" && !isWeakConflict(r)) {
             row.addView(makeSignalBadge("🟡 Возможен вход в шорт (объём/позиция)$patternSuffix", Color.rgb(140, 110, 20)))
-        } else if (r.signalType == "long" && r.signalStrength == "weak") {
+        } else if (r.signalType == "long" && r.signalStrength == "weak" && !isWeakConflict(r)) {
             row.addView(makeSignalBadge("🟡 Возможен вход в лонг (объём/позиция)$patternSuffix", Color.rgb(140, 110, 20)))
         }
 
         val notifEmoji = when (notifPriority) { 3 -> "💥 "; 2 -> "⚡ "; 1 -> "📈 "; else -> "" }
         val scoreEmoji = when {
             r.signalStrength == "strong" -> "${notifEmoji}🟢🚀"
-            r.signalStrength == "weak" -> "${notifEmoji}🟡🚀"
+            r.signalStrength == "weak" && !isWeakConflict(r) -> "${notifEmoji}🟡🚀"
             liq != null && liq.total15m >= liqThreshold -> "${notifEmoji}🚀💥"
             r.score >= 3 -> "${notifEmoji}🚀🚀🚀"
             r.score == 2 -> "${notifEmoji}🚀🚀"
@@ -2063,8 +2090,11 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
                 else -> "⚪ Churn"
             }
             val deltaSign = if (r.deltaPct1m >= 0) "+" else ""
-            val realDeltaStr = if (r.realDeltaUsd >= 0) "+${UiUtils.formatMoney(r.realDeltaUsd)}"
-                               else "-${UiUtils.formatMoney(-r.realDeltaUsd)}"
+            val realDeltaStr = when {
+                r.realDeltaUsd == 0.0 -> "—"
+                r.realDeltaUsd > 0 -> "+${UiUtils.formatMoney(r.realDeltaUsd)}"
+                else -> "-${UiUtils.formatMoney(-r.realDeltaUsd)}"
+            }
             deltaLine.text = "Δ 1м: $deltaEmoji $deltaSign${"%.0f".format(r.deltaPct1m)}% ($realDeltaStr buy/sell)  ·  $flowLabel"
             deltaLine.setTextColor(deltaColor)
             deltaLine.textSize = 16f
@@ -2245,7 +2275,7 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
             obLine.textSize = 17f
             row.addView(obLine)
 
-            if (obInfo.bidWallPrice > 0 || obInfo.askWallPrice > 0) {
+            if ((obInfo.bidWallPrice > 0 || obInfo.askWallPrice > 0) && (obInfo.bidWallUsd >= 1000.0 || obInfo.askWallUsd >= 1000.0)) {
                 val wallLine = TextView(this)
                 val bidStr = if (obInfo.bidWallPrice > 0)
                     "🟢 ${"%.4f".format(obInfo.bidWallPrice)} (${UiUtils.formatMoney(obInfo.bidWallUsd)})"
@@ -2539,12 +2569,13 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
                 }
 
                 Handler(Looper.getMainLooper()).post {
+                    if (isDestroyed) return@post
                     chartLoading = false
                     if (candles.isEmpty()) return@post
                     applyChartData(candles, ls)
                 }
             } catch (e: Exception) {
-                Handler(Looper.getMainLooper()).post { chartLoading = false }
+                Handler(Looper.getMainLooper()).post { if (isDestroyed) return@post; chartLoading = false }
             }
         }
         startSocket(symbol)
@@ -2573,6 +2604,7 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
                 if (candles.isEmpty()) return@execute
 
                 Handler(Looper.getMainLooper()).post {
+                    if (isDestroyed) return@post
                     val wasAtRight = (offset + visibleCount) >= allCandles.size
                     allCandles = candles
                     offset = if (wasAtRight) max(0, candles.size - visibleCount)
