@@ -75,6 +75,22 @@ object Persistence {
             }
         })
 
+        root.put("chartEvents", JSONObject().apply {
+            state.chartEvents.forEach { (k, v) ->
+                put(k, JSONArray().apply { v.forEach { put(encChartEvent(it)) } })
+            }
+        })
+
+        root.put("cascadePeaks", JSONObject().apply {
+            state.cascadePeaks.forEach { (k, v) ->
+                put(k, JSONArray().apply { v.forEach { put(encCascadePeak(it)) } })
+            }
+        })
+
+        root.put("cascadeTrackers", JSONObject().apply {
+            state.cascadeTrackers.forEach { (k, v) -> put(k, encCascadeTracker(v)) }
+        })
+
         return root.toString()
     }
 
@@ -136,8 +152,32 @@ object Persistence {
             signalMarkers[k] = list
         }
 
+        val chartEvents = HashMap<String, List<ChartEvent>>()
+        val ceObj = root.optJSONObject("chartEvents") ?: JSONObject()
+        ceObj.keys().forEach { k ->
+            val arr = ceObj.getJSONArray(k)
+            val list = ArrayList<ChartEvent>()
+            for (i in 0 until arr.length()) list.add(decChartEvent(arr.getJSONObject(i)))
+            chartEvents[k] = list
+        }
+
+        val cascadePeaks = HashMap<String, List<CascadePeak>>()
+        val cpObj = root.optJSONObject("cascadePeaks") ?: JSONObject()
+        cpObj.keys().forEach { k ->
+            val arr = cpObj.getJSONArray(k)
+            val list = ArrayList<CascadePeak>()
+            for (i in 0 until arr.length()) list.add(decCascadePeak(arr.getJSONObject(i)))
+            cascadePeaks[k] = list
+        }
+
+        val cascadeTrackers = HashMap<String, CascadeTracker>()
+        val ctObj = root.optJSONObject("cascadeTrackers") ?: JSONObject()
+        ctObj.keys().forEach { k ->
+            cascadeTrackers[k] = decCascadeTracker(ctObj.getJSONObject(k))
+        }
+
         return AppState(savedAt, scanResults, liqBuffer, obInfos, liveSpeeds,
-            longRatioHistory, oiChangeHistory, signalHistory, signalMarkers)
+            longRatioHistory, oiChangeHistory, signalHistory, signalMarkers, chartEvents, cascadePeaks, cascadeTrackers)
     }
 
     private fun encSignalMarker(v: SignalMarker): JSONObject = JSONObject().apply {
@@ -296,4 +336,34 @@ object Persistence {
             o.getBoolean("dyingUp"), o.getBoolean("dyingDown"), pts
         )
     }
+    private fun encChartEvent(v: ChartEvent): JSONObject = JSONObject().apply {
+        put("time", v.time)
+        put("type", v.type)
+        put("level", v.level)
+    }
+
+    private fun decChartEvent(o: JSONObject): ChartEvent = ChartEvent(
+        o.optLong("time", 0L),
+        o.optString("type", ""),
+        o.optInt("level", 1)
+    )
+    private fun encCascadePeak(v: CascadePeak): JSONObject = JSONObject().apply {
+        put("sum", v.sum)
+        put("time", v.time)
+    }
+
+    private fun decCascadePeak(o: JSONObject): CascadePeak = CascadePeak(
+        o.optDouble("sum", 0.0),
+        o.optLong("time", 0L)
+    )
+
+    private fun encCascadeTracker(v: CascadeTracker): JSONObject = JSONObject().apply {
+        put("maxSum", v.maxSum)
+        put("lastGrowthTime", v.lastGrowthTime)
+    }
+
+    private fun decCascadeTracker(o: JSONObject): CascadeTracker = CascadeTracker(
+        o.optDouble("maxSum", 0.0),
+        o.optLong("lastGrowthTime", 0L)
+    )
 }

@@ -142,7 +142,10 @@ data class AppState(
     val longRatioHistory: Map<String, List<Pair<Long, Double>>>,
     val oiChangeHistory: Map<String, List<Double>>,
     val signalHistory: Map<String, SymbolSignal>,
-    val signalMarkers: Map<String, List<SignalMarker>> = emptyMap()
+    val signalMarkers: Map<String, List<SignalMarker>> = emptyMap(),
+    val chartEvents: Map<String, List<ChartEvent>> = emptyMap(),
+    val cascadePeaks: Map<String, List<CascadePeak>> = emptyMap(),
+    val cascadeTrackers: Map<String, CascadeTracker> = emptyMap()
 )
 data class TradeSpeedReading(
     val pctPerMin: Double,

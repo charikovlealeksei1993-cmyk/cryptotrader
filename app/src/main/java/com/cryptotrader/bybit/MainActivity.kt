@@ -330,6 +330,15 @@ class MainActivity : Activity() {
         signalHistory = synchronized(MarketState.signalHistoryLock) { HashMap(MarketState.signalHistory) },
         signalMarkers = synchronized(MarketState.signalMarkersLock) {
             MarketState.signalMarkers.mapValues { ArrayList(it.value) }
+        },
+        chartEvents = synchronized(MarketState.chartEventsLock) {
+            MarketState.chartEvents.mapValues { ArrayList(it.value) }
+        },
+        cascadePeaks = synchronized(MarketState.cascadePeakLock) {
+            MarketState.cascadePeaks.mapValues { ArrayList(it.value) }
+        },
+        cascadeTrackers = synchronized(MarketState.cascadeTrackerLock) {
+            HashMap(MarketState.cascadeTrackers)
         }
     )
 
@@ -393,6 +402,26 @@ class MainActivity : Activity() {
             MarketState.signalMarkers.clear()
             state.signalMarkers.forEach { (k, v) ->
                 MarketState.signalMarkers[k] = ArrayList(v)
+            }
+        }
+
+        synchronized(MarketState.chartEventsLock) {
+            MarketState.chartEvents.clear()
+            state.chartEvents.forEach { (k, v) ->
+                MarketState.chartEvents[k] = ArrayList(v)
+            }
+        }
+
+        synchronized(MarketState.cascadePeakLock) {
+            MarketState.cascadePeaks.clear()
+            state.cascadePeaks.forEach { (k, v) ->
+                MarketState.cascadePeaks[k] = ArrayList(v)
+            }
+        }
+        synchronized(MarketState.cascadeTrackerLock) {
+            MarketState.cascadeTrackers.clear()
+            state.cascadeTrackers.forEach { (k, v) ->
+                MarketState.cascadeTrackers[k] = v
             }
         }
 
