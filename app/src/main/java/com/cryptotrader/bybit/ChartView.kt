@@ -28,6 +28,11 @@ class ChartView(context: Context) : View(context) {
     private var theme: String = "dark"
     private var lsPoints: List<LsPoint> = emptyList()
     private var signalMarkers: List<SignalMarker> = emptyList()
+    private data class CandleMarker(val candleIndex: Int, val type: String, val level: Int)
+    private var volumeMarkers: List<CandleMarker> = emptyList()
+    private var accelMarkers: List<CandleMarker> = emptyList()
+    private var liqMarkers: List<CandleMarker> = emptyList()
+    private var chartEventsRaw: List<ChartEvent> = emptyList()
 
     private var bidWallPrice: Double = 0.0
     private var bidWallUsd: Double = 0.0
@@ -207,6 +212,7 @@ class ChartView(context: Context) : View(context) {
         visible = vis
         chartType = type
         theme = th
+        recomputeAllMarkers()
         recomputeYRange()
         heavyBitmap = null
         invalidate()
@@ -259,6 +265,9 @@ class ChartView(context: Context) : View(context) {
         }
 
         canvas.drawBitmap(heavyBitmap!!, 0f, 0f, null)
+        drawVolumeMarkers(canvas)
+        drawAccelMarkers(canvas)
+        drawLiqMarkers(canvas)
         drawSignalMarkers(canvas)
     }
 
@@ -648,6 +657,107 @@ canvas.save()
             }
         }
 
+        canvas.restore()
+    }
+    fun setChartEvents(events: List<ChartEvent>) {
+        chartEventsRaw = events
+        recomputeAllMarkers()
+        invalidate()
+    }
+
+    private fun recomputeAllMarkers() {
+        val vols = ArrayList<CandleMarker>()
+        val accels = ArrayList<CandleMarker>()
+        val liqs = ArrayList<CandleMarker>()
+        if (candles.isNotEmpty()) {
+            val stepMs = if (candles.size >= 2) candles[1].time - candles[0].time else 60_000L
+            for (i in 20 until candles.size) {
+                var sum = 0.0
+                for (j in i - 20 until i) sum += candles[j].volume
+                val avg = sum / 20.0
+                if (avg <= 0.0) continue
+                val ratio = candles[i].volume / avg
+                val lvl = when {
+                    ratio >= 10.0 -> 3
+                    ratio >= 5.0 -> 2
+                    ratio >= 2.5 -> 1
+                    else -> 0
+                }
+                if (lvl > 0) vols.add(CandleMarker(i, "vol", lvl))
+            }
+            for (e in chartEventsRaw) {
+                var idx = -1
+                var lo = 0
+                var hi = candles.size - 1
+                while (lo <= hi) {
+                    val mid = (lo + hi) ushr 1
+                    val ct = candles[mid].time
+                    if (ct <= e.time) {
+                        if (e.time < ct + stepMs) { idx = mid; break }
+                        lo = mid + 1
+                    } else {
+                        hi = mid - 1
+                    }
+                }
+                if (idx < 0) continue
+                val cm = CandleMarker(idx, e.type, e.level)
+                when (e.type) {
+                    "accel" -> accels.add(cm)
+                    "liq" -> liqs.add(cm)
+                }
+            }
+        }
+        volumeMarkers = vols
+        accelMarkers = accels
+        liqMarkers = liqs
+    }
+
+    private fun drawVolumeMarkers(canvas: Canvas) {
+        drawMarkerList(canvas, volumeMarkers, "🚀", 22f)
+    }
+
+    private fun drawAccelMarkers(canvas: Canvas) {
+        drawMarkerList(canvas, accelMarkers, "⚡", 26f)
+    }
+
+    private fun drawLiqMarkers(canvas: Canvas) {
+        drawMarkerList(canvas, liqMarkers, "💥", 26f)
+    }
+
+    private fun drawMarkerList(canvas: Canvas, markers: List<CandleMarker>, emoji: String, baseSize: Float) {
+        if (markers.isEmpty() || candles.isEmpty()) return
+        val sliceSize = visible.coerceAtMost(candles.size - offset)
+        if (sliceSize <= 0) return
+        val pL = 16f
+        val pR = 110f
+        val pT = 30f
+        val pB = 40f
+        val w = width.toFloat()
+        val h = height.toFloat()
+        val totalPlot = h - pT - pB
+        val candleH = totalPlot * 0.64f
+        val candleTop = pT
+        val plotW = w - pL - pR
+        val step = plotW / sliceSize
+        val slice = candles.subList(offset, offset + sliceSize)
+        val minP = if (yMax > yMin) yMin else slice.minOf { it.low }
+        val maxP = if (yMax > yMin) yMax else slice.maxOf { it.high }
+        val rng = (maxP - minP).takeIf { it > 0 } ?: 1.0
+        canvas.save()
+        canvas.clipRect(pL, candleTop - 50f, w - pR, candleTop + candleH)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textAlign = Paint.Align.CENTER
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        for (m in markers) {
+            if (m.candleIndex < offset || m.candleIndex >= offset + sliceSize) continue
+            val localIdx = m.candleIndex - offset
+            val x = pL + localIdx * step + step / 2
+            val c = candles[m.candleIndex]
+            val y = candleTop + ((maxP - c.high) / rng * candleH).toFloat()
+            paint.textSize = baseSize + (m.level - 1) * 6f
+            canvas.drawText(emoji, x, y - 8f, paint)
+        }
         canvas.restore()
     }
 }

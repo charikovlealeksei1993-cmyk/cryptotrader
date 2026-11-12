@@ -11,11 +11,11 @@ import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * WebSocket на publicTrade.* для списка символов.
- * Слушает сделки и отдаёт (symbol, time, usd, isBuy) в callback.
+ * Слушает сделки и отдаёт (symbol, time, price, size, isBuy) в callback.
  */
 class TradeDeltaSocket(
     private val symbols: List<String>,
-    private val onTrade: (symbol: String, time: Long, usd: Double, isBuy: Boolean) -> Unit
+    private val onTrade: (symbol: String, time: Long, price: Double, size: Double, isBuy: Boolean) -> Unit
 ) {
     private val client = BybitNetwork.client
     private val scheduler = BybitNetwork.scheduler
@@ -59,8 +59,7 @@ class TradeDeltaSocket(
                         val size = t.getString("v").toDoubleOrNull() ?: continue
                         val side = t.optString("S", "")
                         val isBuy = side == "Buy"
-                        val usd = size * price
-                        onTrade(sym, ts, usd, isBuy)
+                        onTrade(sym, ts, price, size, isBuy)
                     }
                 } catch (_: Exception) {}
             }

@@ -15,6 +15,7 @@ object MarketState {
     // ===== Live данные (сделки, скорости) =====
     val liveBuffer = HashMap<String, MutableList<Trade>>()
     val liveSpeeds = HashMap<String, SpeedReading>()
+    val liveTradeSpeeds = HashMap<String, TradeSpeedReading>()
     val liveLock = Any()
 
     // ===== Стакан =====
@@ -27,6 +28,12 @@ object MarketState {
     val liqLock = Any()
     val liqStatsCache = ConcurrentHashMap<String, LiqStats>()
     val liqTrendHistory = HashMap<String, MutableList<String>>()
+
+    // ===== Пики каскадов ликвидаций =====
+    val cascadePeaks = HashMap<String, MutableList<CascadePeak>>()
+    val cascadePeakLock = Any()
+    val cascadeTrackers = HashMap<String, CascadeTracker>()
+    val cascadeTrackerLock = Any()
     val liqTrendLock = Any()
 
     // ===== Сигналы =====
@@ -59,4 +66,7 @@ object MarketState {
     // ===== Ликвидационные уведомления =====
     val liquidationActive = HashSet<String>()
     val liquidationActiveLock = Any()
+    // ===== События на графике =====
+    val chartEvents = HashMap<String, MutableList<ChartEvent>>()
+    val chartEventsLock = Any()
 }

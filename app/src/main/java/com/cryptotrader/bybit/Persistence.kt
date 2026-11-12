@@ -24,7 +24,6 @@ object Persistence {
             val json = JSONObject(file.readText())
             if (json.optInt("version", 0) != VERSION) return null
             val state = decode(json)
-            if (System.currentTimeMillis() - state.savedAt > MAX_AGE_MS) return null
             return state
         } catch (_: Exception) { return null }
     }

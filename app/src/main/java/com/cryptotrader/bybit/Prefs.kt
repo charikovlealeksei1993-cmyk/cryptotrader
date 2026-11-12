@@ -160,6 +160,13 @@ object Prefs {
         sp(c).edit().putString("paperTrades", json).apply()
     }
 
+    fun paperState(c: Context): String? =
+        sp(c).getString("paperState", null)
+
+    fun setPaperState(c: Context, json: String) {
+        sp(c).edit().putString("paperState", json).commit()
+    }
+
     // Авто-выход SL/TP/Timeout
     fun paperSlPercent(c: Context): Double =
         sp(c).getString("paperSlPercent", null)?.toDoubleOrNull() ?: 2.0

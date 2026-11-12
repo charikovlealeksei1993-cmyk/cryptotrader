@@ -1,6 +1,8 @@
 package com.cryptotrader.bybit
 
 import android.content.Context
+import org.json.JSONArray
+import org.json.JSONObject
 import kotlin.math.abs
 import kotlin.random.Random
 
@@ -14,8 +16,23 @@ object PaperTrading {
     fun load(context: Context) {
         synchronized(lock) {
             if (_loaded) return
-            _trades = PaperTrade.listFromJson(Prefs.paperTradesJson(context)).toMutableList()
-            _balance = Prefs.paperBalance(context)
+
+            val newState = Prefs.paperState(context)
+            if (newState != null) {
+                try {
+                    val json = JSONObject(newState)
+                    _balance = json.optDouble("balance", 10_000.0)
+                    val tradesArr = json.optJSONArray("trades") ?: JSONArray()
+                    _trades = PaperTrade.listFromJson(tradesArr.toString()).toMutableList()
+                } catch (_: Exception) {
+                    _balance = 10_000.0
+                    _trades = mutableListOf()
+                }
+            } else {
+                _trades = PaperTrade.listFromJson(Prefs.paperTradesJson(context)).toMutableList()
+                _balance = Prefs.paperBalance(context)
+                save(context)
+            }
             _loaded = true
         }
     }
@@ -26,8 +43,13 @@ object PaperTrading {
     }
 
     private fun save(context: Context) {
-        Prefs.setPaperTradesJson(context, PaperTrade.listToJson(_trades))
-        Prefs.setPaperBalance(context, _balance)
+        try {
+            val json = JSONObject().apply {
+                put("balance", _balance)
+                put("trades", JSONArray(PaperTrade.listToJson(_trades)))
+            }
+            Prefs.setPaperState(context, json.toString())
+        } catch (_: Exception) {}
     }
 
     fun balance(): Double = synchronized(lock) { _balance }

@@ -348,21 +348,31 @@ class MainActivity : Activity() {
 
     private fun loadState() {
         val state = Persistence.load(this) ?: return
-        scanResults = state.scanResults
-        synchronized(MarketState.liqLock) {
-            MarketState.liqBuffer.clear()
-            state.liqBuffer.forEach { (k, v) ->
-                MarketState.liqBuffer[k] = ArrayList(v)
+        val ageMs = System.currentTimeMillis() - state.savedAt
+        val isFresh = ageMs < Persistence.MAX_AGE_MS
+
+        // «Живые» данные — только если state моложе 3 часов
+        if (isFresh) {
+            scanResults = state.scanResults
+            synchronized(MarketState.liqLock) {
+                MarketState.liqBuffer.clear()
+                state.liqBuffer.forEach { (k, v) ->
+                    MarketState.liqBuffer[k] = ArrayList(v)
+                }
             }
+            synchronized(MarketState.obLock) {
+                MarketState.obInfos.clear()
+                MarketState.obInfos.putAll(state.obInfos)
+            }
+            synchronized(MarketState.liveLock) {
+                MarketState.liveSpeeds.clear()
+                MarketState.liveSpeeds.putAll(state.liveSpeeds)
+            }
+        } else {
+            android.util.Log.d("Persistence", "Live data too old (${ageMs / 3_600_000}ч), skipped")
         }
-        synchronized(MarketState.obLock) {
-            MarketState.obInfos.clear()
-            MarketState.obInfos.putAll(state.obInfos)
-        }
-        synchronized(MarketState.liveLock) {
-            MarketState.liveSpeeds.clear()
-            MarketState.liveSpeeds.putAll(state.liveSpeeds)
-        }
+
+        // «Исторические» данные — восстанавливаются всегда
         synchronized(MarketState.longRatioLock) {
             MarketState.longRatioHistory.clear()
             state.longRatioHistory.forEach { (k, v) ->
@@ -385,13 +395,11 @@ class MainActivity : Activity() {
                 MarketState.signalMarkers[k] = ArrayList(v)
             }
         }
+
         if (scanResults.isNotEmpty()) {
             firstScanDone = true
         }
     }
-
-
-
     private fun buildUi() {
         root = LinearLayout(this)
         root.orientation = LinearLayout.VERTICAL
@@ -682,6 +690,54 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun recordChartEvents(results: List<ScanResult>) {
+        val now = System.currentTimeMillis()
+        val tfMs = currentTfMinutes * 60_000L
+        val candleStart = (now / tfMs) * tfMs
+        val liqThreshold = Prefs.liqThreshold(this)
+        val cutoff = now - 24 * 60 * 60_000L
+
+        for (r in results) {
+            val ts = synchronized(MarketState.liveLock) { MarketState.liveTradeSpeeds[r.symbol] }
+            if (ts != null) {
+                val absSpeed = kotlin.math.abs(ts.pctPerMin)
+                if (absSpeed > 0.5) {
+                    val level = when {
+                        absSpeed > 2.0 -> 3
+                        absSpeed > 1.0 -> 2
+                        else -> 1
+                    }
+                    addChartEvent(r.symbol, ChartEvent(candleStart, "accel", level))
+                }
+            }
+            val liq = MarketState.liqStatsCache[r.symbol]
+            if (liq != null && liq.total15m >= liqThreshold) {
+                val ratio = liq.total15m / liqThreshold
+                val level = when {
+                    ratio >= 5.0 -> 3
+                    ratio >= 3.0 -> 2
+                    else -> 1
+                }
+                addChartEvent(r.symbol, ChartEvent(candleStart, "liq", level))
+            }
+        }
+
+        synchronized(MarketState.chartEventsLock) {
+            for (list in MarketState.chartEvents.values) {
+                list.removeAll { it.time < cutoff }
+            }
+        }
+    }
+
+    private fun addChartEvent(symbol: String, event: ChartEvent) {
+        synchronized(MarketState.chartEventsLock) {
+            val list = MarketState.chartEvents.getOrPut(symbol) { ArrayList() }
+            if (list.any { it.time == event.time && it.type == event.type }) return
+            list.add(event)
+            while (list.size > 200) list.removeAt(0)
+        }
+    }
+
     private fun applyChartData(candles: List<Candle>, ls: List<LsPoint>) {
         allCandles = candles
         visibleCount = min(100, candles.size)
@@ -690,6 +746,10 @@ class MainActivity : Activity() {
         chartView.setData(candles, offset, visibleCount, Prefs.chartType(this), Prefs.theme(this))
         chartView.setLsPoints(ls)
         chartView.setSignalMarkers(getSignalMarkers(currentSymbol))
+        val chartEvts = synchronized(MarketState.chartEventsLock) {
+            MarketState.chartEvents[currentSymbol]?.toList() ?: emptyList()
+        }
+        chartView.setChartEvents(chartEvts)
         val obInfo = synchronized(MarketState.obLock) { MarketState.obInfos[currentSymbol] }
         chartView.setWalls(
             obInfo?.bidWallPrice ?: 0.0, obInfo?.bidWallUsd ?: 0.0,
@@ -780,19 +840,49 @@ class MainActivity : Activity() {
             Toast.makeText(this, "Не удалось скопировать", Toast.LENGTH_SHORT).show()
         }
     }
-        private fun buildCardText(r: ScanResult): String {
+
+    private fun buildCardText(r: ScanResult): String {
         val sb = StringBuilder()
         val liqThreshold = Prefs.liqThreshold(this)
-        sb.appendLine(r.symbol)
+
+        r.accumulation?.let { acc ->
+            if (acc.level.isNotEmpty()) {
+                val accEmoji = when (acc.level) { "strong" -> "🔥"; "medium" -> "🟢"; else -> "🟡" }
+                val accDir = if (acc.type == "long") "В ЛОНГ" else "В ШОРТ"
+                sb.appendLine("$accEmoji НАКОПЛЕНИЕ $accDir")
+            }
+        }
+
+        val patternSuffix = if (r.signalPattern.isNotEmpty()) " — ${r.signalPattern}" else ""
+        when {
+            r.signalType == "short" && r.signalStrength == "strong" ->
+                sb.appendLine("🟢 ВХОД В ШОРТ$patternSuffix")
+            r.signalType == "long" && r.signalStrength == "strong" ->
+                sb.appendLine("🟢 ВХОД В ЛОНГ$patternSuffix")
+            r.signalType == "short" && r.signalStrength == "weak" ->
+                sb.appendLine("🟡 Возможен вход в шорт (объём/позиция не дотянули)$patternSuffix")
+            r.signalType == "long" && r.signalStrength == "weak" ->
+                sb.appendLine("🟡 Возможен вход в лонг (объём/позиция не дотянули)$patternSuffix")
+        }
+
+        val scoreEmoji = when {
+            r.signalStrength == "strong" -> "🟢🚀"
+            r.signalStrength == "weak" -> "🟡🚀"
+            r.accumulation?.level == "strong" -> "🔥"
+            r.accumulation?.level == "medium" -> "🟢"
+            r.accumulation?.level == "weak" -> "🟡"
+            r.score >= 3 -> "🚀🚀🚀"
+            r.score == 2 -> "🚀🚀"
+            else -> "🚀"
+        }
+        sb.appendLine("$scoreEmoji ${r.symbol}")
         sb.appendLine("Цена: ${"%.4f".format(r.price)}  ·  15м: ${"%+.2f".format(r.change15m)}%")
 
         val hourPct = if (r.turnover24h > 0) r.turnover1h / r.turnover24h * 100 else 0.0
-        sb.appendLine("💰 Оборот 24ч: ${UiUtils.formatMoney(r.turnover24h)} · 1ч: ${UiUtils.formatMoney(r.turnover1h)} (${"%.1f".format(hourPct)}%)")
+        sb.appendLine("💰 24ч: ${UiUtils.formatMoney(r.turnover24h)} · 1ч: ${UiUtils.formatMoney(r.turnover1h)} (${"%.1f".format(hourPct)}%)")
 
         if (r.signals.isNotEmpty()) {
-            r.signals.forEach { sig ->
-                sb.appendLine("${sig.emoji} ${sig.detail}")
-            }
+            r.signals.forEach { sig -> sb.appendLine("${sig.emoji} ${sig.detail}") }
         }
 
         if (r.deltaPct1m != 0.0 || r.flowStatus.isNotEmpty()) {
@@ -812,6 +902,54 @@ class MainActivity : Activity() {
                 else -> "Churn"
             }
             sb.appendLine("Δ 1м: $deltaEmoji $deltaSign${"%.0f".format(r.deltaPct1m)}% ($realDeltaStr buy/sell) · $flowLabel")
+        }
+
+        val liq = getCachedLiqStats(r.symbol)
+        if (liq != null && liq.total15m >= liqThreshold) {
+            val who = if (liq.dominantIsLong) "🐂 лонги" else "🐻 шорты"
+            val domPct = if (liq.dominantIsLong) liq.longPct else liq.shortPct
+            val trendIcon = when (liq.trend) {
+                "rising" -> "🔥 растёт"
+                "falling" -> "🪫 затухает"
+                else -> "➡️ стабильно"
+            }
+            sb.appendLine("💥 Ликвидации 15м: ${UiUtils.formatMoney(liq.total15m)} · $who ${"%.0f".format(domPct)}% · $trendIcon")
+            val peakList = synchronized(MarketState.cascadePeakLock) {
+                MarketState.cascadePeaks[r.symbol]?.toList() ?: emptyList()
+            }
+            if (peakList.isNotEmpty()) {
+                val avgPeak = peakList.map { it.sum }.average()
+                if (avgPeak > 0) {
+                    val percent = (liq.total15m / avgPeak * 100).toInt()
+                    val maxPeak = peakList.maxOf { it.sum }
+                    val exceeded = liq.total15m > maxPeak
+                    val peaksStr = peakList.joinToString(", ") { UiUtils.formatMoney(it.sum) }
+                    val suffix = if (exceeded) " (перебит максимум!)" else ""
+                    sb.appendLine("   Прошлые пики: $peaksStr · сейчас $percent% от среднего$suffix")
+                }
+            }
+            val zoneAhead = if (!liq.dominantIsLong) r.peakForecast > r.price else r.peakForecast < r.price
+            if (r.peakForecast > 0 && zoneAhead) {
+                val dirWord = if (!liq.dominantIsLong) "вверх" else "вниз"
+                val zone = if (r.peakLow > 0 && r.peakHigh > r.peakLow) {
+                    "зона ${"%.4f".format(r.peakLow)} – ${"%.4f".format(r.peakHigh)}"
+                } else {
+                    "%.4f".format(r.peakForecast)
+                }
+                val conf = if (r.peakConfident) "" else " ⚠️"
+                sb.appendLine("🎯 Зона выноса: $zone (ещё ${"%.1f".format(r.peakRemainPct)}% $dirWord)$conf")
+            }
+        }
+
+        if (r.openInterest > 0) {
+            val oiSign = if (r.openInterestChange >= 0) "+" else ""
+            val oiUsd = r.openInterest * r.price
+            val trendIcon = when (r.oiTrend) {
+                "accelerating" -> " ↗️"
+                "slowing" -> " ↘️"
+                else -> ""
+            }
+            sb.appendLine("📊 OI: ${UiUtils.formatMoney(r.openInterest)} (~${UiUtils.formatMoney(oiUsd)}) · $oiSign${"%.2f".format(r.openInterestChange)}%$trendIcon")
         }
 
         if (r.longRatio > 0 || r.shortRatio > 0) {
@@ -834,51 +972,13 @@ class MainActivity : Activity() {
             }
             sb.appendLine("⚖️ Стакан: $sign${"%.2f".format(imb)} ($label)")
             if (obInfo.bidWallPrice > 0 || obInfo.askWallPrice > 0) {
-                sb.appendLine("   Bid wall: ${"%.4f".format(obInfo.bidWallPrice)} (${UiUtils.formatMoney(obInfo.bidWallUsd)})")
-                sb.appendLine("   Ask wall: ${"%.4f".format(obInfo.askWallPrice)} (${UiUtils.formatMoney(obInfo.askWallUsd)})")
+                val bidStar = if (obInfo.bidWallUsd > obInfo.askWallUsd) " ★" else ""
+                val askStar = if (obInfo.askWallUsd > obInfo.bidWallUsd) " ★" else ""
+                sb.appendLine("   Bid wall: ${"%.4f".format(obInfo.bidWallPrice)} (${UiUtils.formatMoney(obInfo.bidWallUsd)})$bidStar")
+                sb.appendLine("   Ask wall: ${"%.4f".format(obInfo.askWallPrice)} (${UiUtils.formatMoney(obInfo.askWallUsd)})$askStar")
             }
         } else {
             sb.appendLine("⚖️ Стакан: нет данных")
-        }
-
-        if (r.openInterest > 0) {
-            val oiSign = if (r.openInterestChange >= 0) "+" else ""
-            val oiUsd = r.openInterest * r.price
-            sb.appendLine("📊 OI: ${UiUtils.formatMoney(r.openInterest)} (~${UiUtils.formatMoney(oiUsd)}) · $oiSign${"%.2f".format(r.openInterestChange)}%")
-        }
-
-        val liq = getCachedLiqStats(r.symbol)
-        if (liq != null && liq.total15m >= liqThreshold) {
-            val who = if (liq.dominantIsLong) "🐂 лонги" else "🐻 шорты"
-            val domPct = if (liq.dominantIsLong) liq.longPct else liq.shortPct
-            val trendIcon = when (liq.trend) {
-                "rising" -> "🔥 растёт"
-                "falling" -> "🪫 затухает"
-                else -> "➡️ стабильно"
-            }
-            sb.appendLine("💥 Ликвидации 15м: ${UiUtils.formatMoney(liq.total15m)} · $who ${"%.0f".format(domPct)}% · $trendIcon")
-            if (r.peakForecast > 0) {
-                val dirWord = if (!liq.dominantIsLong) "вверх" else "вниз"
-                val zone = if (r.peakLow > 0 && r.peakHigh > r.peakLow) {
-                    "зона ${"%.4f".format(r.peakLow)} – ${"%.4f".format(r.peakHigh)}"
-                } else {
-                    "%.4f".format(r.peakForecast)
-                }
-                val conf = if (r.peakConfident) "" else " ⚠️"
-                sb.appendLine("🎯 Зона выноса: $zone (ещё ${"%.1f".format(r.peakRemainPct)}% $dirWord)$conf")
-            }
-        }
-
-        val patternSuffix = if (r.signalPattern.isNotEmpty()) " — ${r.signalPattern}" else ""
-        when {
-            r.signalType == "short" && r.signalStrength == "strong" ->
-                sb.appendLine("🟢 ВХОД В ШОРТ$patternSuffix")
-            r.signalType == "long" && r.signalStrength == "strong" ->
-                sb.appendLine("🟢 ВХОД В ЛОНГ$patternSuffix")
-            r.signalType == "short" && r.signalStrength == "weak" ->
-                sb.appendLine("🟡 Возможен вход в шорт (объём/позиция не дотянули)$patternSuffix")
-            r.signalType == "long" && r.signalStrength == "weak" ->
-                sb.appendLine("🟡 Возможен вход в лонг (объём/позиция не дотянули)$patternSuffix")
         }
 
         val sp = synchronized(MarketState.liveLock) { MarketState.liveSpeeds[r.symbol] }
@@ -890,11 +990,58 @@ class MainActivity : Activity() {
             }
             sb.appendLine("$icon · ${"%.2f".format(sp.speedNow)}%/мин")
         }
+        val ts = synchronized(MarketState.liveLock) { MarketState.liveTradeSpeeds[r.symbol] }
+        if (ts != null) {
+            val tsEmoji = when {
+                ts.pctPerMin > 0.3 -> "🔥↑"
+                ts.pctPerMin < -0.3 -> "🔥↓"
+                ts.pctPerMin > 0.05 -> "·↑"
+                ts.pctPerMin < -0.05 -> "·↓"
+                else -> "·"
+            }
+            val tsSign = if (ts.pctPerMin >= 0) "+" else ""
+            sb.appendLine("$tsEmoji $tsSign${"%.2f".format(ts.pctPerMin)}%/мин (${ts.tradeCount} сделок)")
+        }
+
+        if (r.signalType.isEmpty()) {
+            val hist = synchronized(MarketState.signalHistoryLock) { MarketState.signalHistory[r.symbol] }
+            if (hist != null && hist.candleTime > 0L) {
+                val ageMs = System.currentTimeMillis() - hist.detectedAt
+                val ageMin = ageMs / 60_000L
+                val ageLabel = when {
+                    ageMin < 1 -> "только что"
+                    ageMin < 60 -> "$ageMin мин назад"
+                    ageMin < 1440 -> "${ageMin / 60} ч назад"
+                    else -> "${ageMin / 1440} дн назад"
+                }
+                val sigLabel = if (hist.type == "long") "лонг" else "шорт"
+                val strLabel = if (hist.strength == "strong") "STRONG" else "WEAK"
+                sb.appendLine("📜 Был сигнал $ageLabel ($strLabel $sigLabel)")
+            }
+        }
+
+        r.accumulation?.let { acc ->
+            if (acc.level.isNotEmpty()) {
+                val accEmoji = when (acc.level) { "strong" -> "🔥"; "medium" -> "🟢"; else -> "🟡" }
+                val accDir = if (acc.type == "long") "лонг" else "шорт"
+                sb.appendLine("$accEmoji Накопление $accDir · OI +${"%.2f".format(acc.oiChangePct)}% (${acc.oiBarsPositive}/9) · Диапазон ${"%.2f".format(acc.rangePct)}% · Delta ${UiUtils.formatMoney(acc.deltaUsd)}")
+            }
+        }
+
+        val openTrade = PaperTrading.openTrades().firstOrNull { it.symbol == r.symbol }
+        if (openTrade != null) {
+            val pnl = openTrade.unrealizedPnl(r.price)
+            val pnlPct = openTrade.unrealizedPnlPct(r.price)
+            val dir = if (openTrade.isLong) "🟢 LONG" else "🔴 SHORT"
+            val pnlSign = if (pnl >= 0) "+" else ""
+            sb.appendLine("📈 Открыта $dir · $${"%.2f".format(openTrade.sizeUsd)} · $pnlSign$${"%.2f".format(pnl)} ($pnlSign${"%.1f".format(pnlPct)}%)")
+        } else {
+            val sizeUsd = Prefs.paperTradeSize(this)
+            sb.appendLine("💡 BUY $${"%.0f".format(sizeUsd)} / SELL $${"%.0f".format(sizeUsd)}")
+        }
 
         return sb.toString().trim()
     }
-
-
     private fun sortResults(list: List<ScanResult>): List<ScanResult> {
         val base = list.sortedWith(
             compareByDescending<ScanResult> { it.score }.thenByDescending { abs(it.change15m) }
@@ -1073,11 +1220,18 @@ class MainActivity : Activity() {
         if (symbols == currentDeltaSymbols && tradeDeltaSocket != null) return
         stopTradeDeltaSocket()
         currentDeltaSymbols = symbols
-        tradeDeltaSocket = TradeDeltaSocket(symbols) { symbol, time, usd, isBuy ->
-            tradeDeltaAnalyzer.addTrade(symbol, time, usd, isBuy)
+        tradeDeltaSocket = TradeDeltaSocket(symbols) { symbol, time, price, size, isBuy ->
+            tradeDeltaAnalyzer.addTrade(symbol, time, price * size, isBuy)
+            synchronized(MarketState.liveLock) {
+                val buf = MarketState.liveBuffer.getOrPut(symbol) { ArrayList() }
+                val lastTime = buf.lastOrNull()?.time ?: 0L
+                if (time > lastTime) {
+                    buf.add(Trade(time, price, size))
+                }
+                while (buf.size > 2000) buf.removeAt(0)
+            }
         }.also { it.connect() }
     }
-
     private fun stopTradeDeltaSocket() {
         try { tradeDeltaSocket?.close() } catch (_: Exception) {}
         tradeDeltaSocket = null
@@ -1170,6 +1324,7 @@ class MainActivity : Activity() {
             for (sym in keys) {
                 val s = computeLiqStats(sym) ?: continue
                 newMap[sym] = s
+                updateCascadePeak(sym, s.total15m)
             }
             MarketState.liqStatsCache.clear()
             MarketState.liqStatsCache.putAll(newMap)
@@ -1177,6 +1332,31 @@ class MainActivity : Activity() {
     }
 
     private fun getCachedLiqStats(symbol: String): LiqStats? = MarketState.liqStatsCache[symbol]
+    private fun updateCascadePeak(symbol: String, currentSum: Double) {
+        val now = System.currentTimeMillis()
+        val liqThreshold = Prefs.liqThreshold(this)
+        synchronized(MarketState.cascadeTrackerLock) {
+            val tracker = MarketState.cascadeTrackers.getOrPut(symbol) { CascadeTracker() }
+            if (currentSum > tracker.maxSum) {
+                MarketState.cascadeTrackers[symbol] = tracker.copy(
+                    maxSum = currentSum,
+                    lastGrowthTime = now
+                )
+            } else if (tracker.maxSum > 0 && now - tracker.lastGrowthTime > 10 * 60_000L) {
+                if (tracker.maxSum >= liqThreshold) {
+                    synchronized(MarketState.cascadePeakLock) {
+                        val peaks = MarketState.cascadePeaks.getOrPut(symbol) { ArrayList() }
+                        peaks.add(CascadePeak(tracker.maxSum, tracker.lastGrowthTime))
+                        while (peaks.size > 3) peaks.removeAt(0)
+                        val cutoff = now - 24 * 60 * 60_000L
+                        peaks.removeAll { it.time < cutoff }
+                    }
+                }
+                MarketState.cascadeTrackers[symbol] = CascadeTracker()
+            }
+        }
+    }
+
 
     private fun computeLiqStats(symbol: String): LiqStats? {
         val events: List<LiqEvent>
@@ -1353,6 +1533,8 @@ class MainActivity : Activity() {
                     }
                     scanResults = combined.take(limit)
 
+                    recordChartEvents(scanResults)
+
                     val socketPool = topN.take(30)
                     startLiqSocket(socketPool)
                     startTradeDeltaSocket(socketPool)
@@ -1401,6 +1583,63 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun computeSpeedByTrades(symbol: String): TradeSpeedReading? {
+        val trades: List<Trade> = synchronized(MarketState.liveLock) {
+            MarketState.liveBuffer[symbol]?.toList() ?: emptyList()
+        }
+        if (trades.size < 10) return null
+        val now = System.currentTimeMillis()
+        val cutoff = now - 60_000L
+        val recent = ArrayList<Trade>()
+        for (t in trades) if (t.time >= cutoff) recent.add(t)
+        if (recent.size < 10) return null
+
+        var totalVol = 0.0
+        for (t in recent) totalVol += t.price * t.size
+        if (totalVol < 500.0) return null
+
+        // Разбиваем 60 сек на 6 окон по 10 сек, считаем VWAP в каждом
+        val windowMs = 10_000L
+        val bucketCount = 6
+        val bucketStart = now - 60_000L
+        val prices = DoubleArray(bucketCount) { 0.0 }
+        val sizes = DoubleArray(bucketCount) { 0.0 }
+
+        for (t in recent) {
+            val idx = ((t.time - bucketStart) / windowMs).toInt().coerceIn(0, bucketCount - 1)
+            val vol = t.price * t.size
+            prices[idx] += vol
+            sizes[idx] += t.size
+        }
+
+        // VWAP каждого непустого окна
+        val vwaps = ArrayList<Double>(bucketCount)
+        for (i in 0 until bucketCount) {
+            if (sizes[i] > 0) vwaps.add(prices[i] / sizes[i])
+        }
+        if (vwaps.size < 2) return null
+
+        // Скорости между соседними окнами (% за окно)
+        val speeds = ArrayList<Double>(vwaps.size - 1)
+        for (i in 1 until vwaps.size) {
+            val prev = vwaps[i - 1]
+            if (prev <= 0) continue
+            speeds.add((vwaps[i] - prev) / prev * 100.0)
+        }
+        if (speeds.isEmpty()) return null
+
+        speeds.sort()
+        val median = speeds[speeds.size / 2]
+        // median — % за окно (10 сек), переводим в %/мин
+        val pctPerMin = median * (60.0 / 10.0)
+
+        return TradeSpeedReading(
+            pctPerMin = pctPerMin,
+            tradeCount = recent.size,
+            volumeUsd = totalVol,
+            seconds = 60
+        )
+    }
     private fun computeIntrabarSpeed(symbol: String, tfMinutes: Int): SpeedReading? {
         val trades: List<Trade>
         synchronized(MarketState.liveLock) { trades = MarketState.liveBuffer[symbol]?.toList() ?: return null }
@@ -1449,6 +1688,10 @@ class MainActivity : Activity() {
                     val sp = computeIntrabarSpeed(sym, currentTfMinutes)
                     if (sp != null) {
                         synchronized(MarketState.liveLock) { MarketState.liveSpeeds[sym] = sp }
+                    }
+                    val ts = computeSpeedByTrades(sym)
+                    if (ts != null) {
+                        synchronized(MarketState.liveLock) { MarketState.liveTradeSpeeds[sym] = ts }
                     }
                 }
             }
@@ -1771,18 +2014,6 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
         volLine.textSize = 17f
         row.addView(volLine)
 
-        if (r.signals.isNotEmpty()) {
-            r.signals.forEach { sig ->
-                val sigLine = TextView(this)
-                sigLine.text = "${sig.emoji} ${sig.detail}"
-                sigLine.setTextColor(Color.rgb(255, 200, 60))
-                sigLine.textSize = 16f
-                sigLine.setTypeface(null, Typeface.BOLD)
-                sigLine.setPadding(0, 2, 0, 0)
-                row.addView(sigLine)
-            }
-        }
-
         if (r.deltaPct1m != 0.0 || r.flowStatus.isNotEmpty()) {
             val deltaLine = TextView(this)
             val deltaEmoji = when {
@@ -1810,44 +2041,6 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
             deltaLine.textSize = 16f
             deltaLine.setPadding(0, 2, 0, 0)
             row.addView(deltaLine)
-        }
-
-        if (liq != null && liq.total15m >= liqThreshold) {
-            val liqLine = TextView(this)
-            val direction = if (liq.dominantIsLong) "🐂 лонги" else "🐻 шорты"
-            val domPct = if (liq.dominantIsLong) liq.longPct else liq.shortPct
-            val trendIcon = when (liq.trend) {
-                "rising" -> "🔥 растёт"
-                "falling" -> "🪫 затухает"
-                else -> "➡️ стабильно"
-            }
-            liqLine.text = "💥 Ликвидации: ${UiUtils.formatMoney(liq.total15m)} · $direction ${"%.0f".format(domPct)}% · $trendIcon"
-            liqLine.textSize = 18f
-            liqLine.setTypeface(null, Typeface.BOLD)
-            liqLine.setTextColor(
-                when (liq.trend) {
-                    "rising" -> Color.rgb(255, 120, 120)
-                    "falling" -> Color.rgb(255, 200, 60)
-                    else -> Prefs.text(this)
-                }
-            )
-            row.addView(liqLine)
-
-            if (r.peakForecast > 0) {
-                val peakLine = TextView(this)
-                val dirWord = if (!liq.dominantIsLong) "вверх" else "вниз"
-                val zone = if (r.peakLow > 0 && r.peakHigh > r.peakLow) {
-                    "зона ${"%.4f".format(r.peakLow)} – ${"%.4f".format(r.peakHigh)}"
-                } else {
-                    "%.4f".format(r.peakForecast)
-                }
-                val conf = if (r.peakConfident) "" else " ⚠️"
-                peakLine.text = "🎯 Зона выноса: $zone (ещё ${"%.1f".format(r.peakRemainPct)}% $dirWord)$conf"
-                peakLine.textSize = 16f
-                peakLine.setTextColor(Color.rgb(120, 200, 255))
-                peakLine.setPadding(0, 2, 0, 0)
-                row.addView(peakLine)
-            }
         }
 
         if (r.openInterest > 0) {
@@ -1891,6 +2084,123 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
         lsLine.textSize = 18f
         row.addView(lsLine)
 
+        if (liq != null && liq.total15m >= liqThreshold) {
+            val liqLine = TextView(this)
+            val direction = if (liq.dominantIsLong) "🐂 лонги" else "🐻 шорты"
+            val domPct = if (liq.dominantIsLong) liq.longPct else liq.shortPct
+            val trendIcon = when (liq.trend) {
+                "rising" -> "🔥 растёт"
+                "falling" -> "🪫 затухает"
+                else -> "➡️ стабильно"
+            }
+            liqLine.text = "💥 Ликвидации: ${UiUtils.formatMoney(liq.total15m)} · $direction ${"%.0f".format(domPct)}% · $trendIcon"
+            liqLine.textSize = 18f
+            liqLine.setTypeface(null, Typeface.BOLD)
+            liqLine.setTextColor(
+                when (liq.trend) {
+                    "rising" -> Color.rgb(255, 120, 120)
+                    "falling" -> Color.rgb(255, 200, 60)
+                    else -> Prefs.text(this)
+                }
+            )
+            row.addView(liqLine)
+            val peakList = synchronized(MarketState.cascadePeakLock) {
+                MarketState.cascadePeaks[r.symbol]?.toList() ?: emptyList()
+            }
+            if (peakList.isNotEmpty()) {
+                val avgPeak = peakList.map { it.sum }.average()
+                if (avgPeak > 0) {
+                    val percent = (liq.total15m / avgPeak * 100).toInt()
+                    val maxPeak = peakList.maxOf { it.sum }
+                    val exceeded = liq.total15m > maxPeak
+                    val peaksStr = peakList.joinToString(", ") { UiUtils.formatMoney(it.sum) }
+                    val peaksLine = TextView(this)
+                    if (exceeded) {
+                        peaksLine.text = "   Прошлые пики: $peaksStr · сейчас $percent% (перебит максимум!)"
+                        peaksLine.setTextColor(Color.rgb(255, 150, 200))
+                    } else {
+                        peaksLine.text = "   Прошлые пики: $peaksStr · сейчас $percent% от среднего"
+                        peaksLine.setTextColor(Prefs.textDim(this))
+                    }
+                    peaksLine.textSize = 15f
+                    peaksLine.setPadding(0, 2, 0, 0)
+                    row.addView(peaksLine)
+                }
+            }
+
+            val zoneAhead = if (!liq.dominantIsLong) r.peakForecast > r.price else r.peakForecast < r.price
+            if (r.peakForecast > 0 && zoneAhead) {
+                val peakLine = TextView(this)
+                val dirWord = if (!liq.dominantIsLong) "вверх" else "вниз"
+                val zone = if (r.peakLow > 0 && r.peakHigh > r.peakLow) {
+                    "зона ${"%.4f".format(r.peakLow)} – ${"%.4f".format(r.peakHigh)}"
+                } else {
+                    "%.4f".format(r.peakForecast)
+                }
+                val conf = if (r.peakConfident) "" else " ⚠️"
+                peakLine.text = "🎯 Зона выноса: $zone (ещё ${"%.1f".format(r.peakRemainPct)}% $dirWord)$conf"
+                peakLine.textSize = 16f
+                peakLine.setTextColor(Color.rgb(120, 200, 255))
+                peakLine.setPadding(0, 2, 0, 0)
+                row.addView(peakLine)
+            }
+        }
+
+        val sp = synchronized(MarketState.liveLock) { MarketState.liveSpeeds[r.symbol] }
+        if (sp != null) {
+            val spLine = TextView(this)
+            val icon = when {
+                sp.accelerating -> "⚡⚡⚡ ускорение"
+                sp.dying -> "🪫 затухание"
+                else -> "⚡ стабильно"
+            }
+            spLine.text = "$icon · ${"%.2f".format(sp.speedNow)}%/мин"
+            spLine.setTextColor(
+                when {
+                    sp.accelerating -> Color.rgb(120, 255, 150)
+                    sp.dying -> Color.rgb(255, 150, 150)
+                    else -> Prefs.textDim(this)
+                }
+            )
+            spLine.textSize = 17f
+            row.addView(spLine)
+        }
+
+            val ts = synchronized(MarketState.liveLock) { MarketState.liveTradeSpeeds[r.symbol] }
+            if (ts != null) {
+                val tsEmoji = when {
+                    ts.pctPerMin > 0.3 -> "🔥↑"
+                    ts.pctPerMin < -0.3 -> "🔥↓"
+                    ts.pctPerMin > 0.05 -> "·↑"
+                    ts.pctPerMin < -0.05 -> "·↓"
+                    else -> "·"
+                }
+                val tsSign = if (ts.pctPerMin >= 0) "+" else ""
+                val tsLine = TextView(this)
+                tsLine.text = "$tsEmoji $tsSign${"%.2f".format(ts.pctPerMin)}%/мин (${ts.tradeCount} сделок)"
+                tsLine.setTextColor(
+                    when {
+                        ts.pctPerMin > 0.3 -> Color.rgb(120, 255, 150)
+                        ts.pctPerMin < -0.3 -> Color.rgb(255, 150, 150)
+                        else -> Prefs.textDim(this)
+                    }
+                )
+                tsLine.textSize = 17f
+                row.addView(tsLine)
+            }
+
+        if (r.signals.isNotEmpty()) {
+            r.signals.forEach { sig ->
+                val sigLine = TextView(this)
+                sigLine.text = "${sig.emoji} ${sig.detail}"
+                sigLine.setTextColor(Color.rgb(255, 200, 60))
+                sigLine.textSize = 16f
+                sigLine.setTypeface(null, Typeface.BOLD)
+                sigLine.setPadding(0, 2, 0, 0)
+                row.addView(sigLine)
+            }
+        }
+
         val obInfo = synchronized(MarketState.obLock) { MarketState.obInfos[r.symbol] }
         val obLine = TextView(this)
         if (obInfo != null) {
@@ -1914,7 +2224,20 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
                 val askStr = if (obInfo.askWallPrice > 0)
                     "🔴 ${"%.4f".format(obInfo.askWallPrice)} (${UiUtils.formatMoney(obInfo.askWallUsd)})"
                 else "—"
-                wallLine.text = "   Bid: $bidStr  ·  Ask: $askStr"
+                val bidWins = obInfo.bidWallUsd > obInfo.askWallUsd
+                val askWins = obInfo.askWallUsd > obInfo.bidWallUsd
+                val bidColor = if (bidWins) Color.rgb(120, 255, 150) else Prefs.textDim(this)
+                val askColor = if (askWins) Color.rgb(255, 150, 150) else Prefs.textDim(this)
+                val sp = android.text.SpannableStringBuilder()
+                sp.append("   Bid: ")
+                val bidStart = sp.length
+                sp.append(bidStr)
+                sp.setSpan(android.text.style.ForegroundColorSpan(bidColor), bidStart, sp.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                sp.append("  ·  Ask: ")
+                val askStart = sp.length
+                sp.append(askStr)
+                sp.setSpan(android.text.style.ForegroundColorSpan(askColor), askStart, sp.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                wallLine.text = sp
                 wallLine.setTextColor(Prefs.textDim(this))
                 wallLine.textSize = 15f
                 wallLine.setPadding(0, 2, 0, 0)
@@ -1927,24 +2250,19 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
             row.addView(obLine)
         }
 
-        val sp = synchronized(MarketState.liveLock) { MarketState.liveSpeeds[r.symbol] }
-        if (sp != null) {
-            val spLine = TextView(this)
-            val icon = when {
-                sp.accelerating -> "⚡⚡⚡ ускорение"
-                sp.dying -> "🪫 затухание"
-                else -> "⚡ стабильно"
+        r.accumulation?.let { acc ->
+            if (acc.level.isNotEmpty()) {
+                val accEmoji = when (acc.level) { "strong" -> "🔥"; "medium" -> "🟢"; else -> "🟡" }
+                val accDir = if (acc.type == "long") "лонг" else "шорт"
+                val accColor = when (acc.level) { "strong" -> Color.rgb(255, 120, 60); "medium" -> Color.rgb(120, 200, 140); else -> Color.rgb(255, 200, 60) }
+                val accLine = TextView(this)
+                accLine.text = "$accEmoji Накопление $accDir · OI +${"%.2f".format(acc.oiChangePct)}% (${acc.oiBarsPositive}/9) · Диапазон ${"%.2f".format(acc.rangePct)}% · Delta ${UiUtils.formatMoney(acc.deltaUsd)}"
+                accLine.setTextColor(accColor)
+                accLine.textSize = 17f
+                accLine.setTypeface(null, Typeface.BOLD)
+                accLine.setPadding(0, 4, 0, 0)
+                row.addView(accLine)
             }
-            spLine.text = "$icon · ${"%.2f".format(sp.speedNow)}%/мин"
-            spLine.setTextColor(
-                when {
-                    sp.accelerating -> Color.rgb(120, 255, 150)
-                    sp.dying -> Color.rgb(255, 150, 150)
-                    else -> Prefs.textDim(this)
-                }
-            )
-            spLine.textSize = 17f
-            row.addView(spLine)
         }
 
         if (r.signalType.isEmpty()) {
@@ -1969,20 +2287,6 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
             }
         }
 
-        r.accumulation?.let { acc ->
-            if (acc.level.isNotEmpty()) {
-                val accEmoji = when (acc.level) { "strong" -> "🔥"; "medium" -> "🟢"; else -> "🟡" }
-                val accDir = if (acc.type == "long") "лонг" else "шорт"
-                val accColor = when (acc.level) { "strong" -> Color.rgb(255, 120, 60); "medium" -> Color.rgb(120, 200, 140); else -> Color.rgb(255, 200, 60) }
-                val accLine = TextView(this)
-                accLine.text = "$accEmoji Накопление $accDir · OI +${"%.2f".format(acc.oiChangePct)}% (${acc.oiBarsPositive}/9) · Диапазон ${"%.2f".format(acc.rangePct)}% · Delta ${UiUtils.formatMoney(acc.deltaUsd)}"
-                accLine.setTextColor(accColor)
-                accLine.textSize = 17f
-                accLine.setTypeface(null, Typeface.BOLD)
-                accLine.setPadding(0, 4, 0, 0)
-                row.addView(accLine)
-            }
-        }
         row.addView(makePaperTradingRow(r))
 
         row.setOnClickListener { openChart(r.symbol) }
@@ -2247,6 +2551,10 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
                     chartView.setData(candles, offset, visibleCount, Prefs.chartType(this), Prefs.theme(this))
                     chartView.setLsPoints(ls)
                     chartView.setSignalMarkers(getSignalMarkers(currentSymbol))
+                    val chartEvts2 = synchronized(MarketState.chartEventsLock) {
+                        MarketState.chartEvents[currentSymbol]?.toList() ?: emptyList()
+                    }
+                    chartView.setChartEvents(chartEvts2)
                     val obInfo = synchronized(MarketState.obLock) { MarketState.obInfos[currentSymbol] }
                     chartView.setWalls(
                         obInfo?.bidWallPrice ?: 0.0, obInfo?.bidWallUsd ?: 0.0,

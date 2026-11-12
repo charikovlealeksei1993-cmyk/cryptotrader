@@ -144,3 +144,26 @@ data class AppState(
     val signalHistory: Map<String, SymbolSignal>,
     val signalMarkers: Map<String, List<SignalMarker>> = emptyMap()
 )
+data class TradeSpeedReading(
+    val pctPerMin: Double,
+    val tradeCount: Int,
+    val volumeUsd: Double,
+    val seconds: Int
+)
+
+data class CascadePeak(
+    val sum: Double,
+    val time: Long
+)
+
+data class CascadeTracker(
+    val maxSum: Double = 0.0,
+    val lastGrowthTime: Long = 0L
+)
+
+data class ChartEvent(
+    val time: Long,
+    val type: String,
+    val level: Int
+)
+
