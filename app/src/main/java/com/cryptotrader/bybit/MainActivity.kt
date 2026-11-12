@@ -733,35 +733,16 @@ class MainActivity : Activity() {
         val cutoff = now - 24 * 60 * 60_000L
 
         for (r in results) {
-            val ts = synchronized(MarketState.liveLock) { MarketState.liveTradeSpeeds[r.symbol] }
-            if (ts != null) {
-                val absSpeed = kotlin.math.abs(ts.pctPerMin)
-                if (absSpeed > 0.5) {
-                    val level = when {
-                        absSpeed > 2.0 -> 3
-                        absSpeed > 1.0 -> 2
-                        else -> 1
-                    }
-                    addChartEvent(r.symbol, ChartEvent(candleStart, "accel", level))
-                }
+            val sp = synchronized(MarketState.liveLock) { MarketState.liveSpeeds[r.symbol] }
+            if (sp != null && sp.accelerating) {
+                addChartEvent(r.symbol, ChartEvent(candleStart, "accel", 1))
             }
             val liq = MarketState.liqStatsCache[r.symbol]
             if (liq != null && liq.total15m >= liqThreshold) {
-                val ratio = liq.total15m / liqThreshold
-                val level = when {
-                    ratio >= 5.0 -> 3
-                    ratio >= 3.0 -> 2
-                    else -> 1
-                }
-                addChartEvent(r.symbol, ChartEvent(candleStart, "liq", level))
+                addChartEvent(r.symbol, ChartEvent(candleStart, "liq", 1))
             }
             if (r.signals.any { it.type == "volume" }) {
-                val lvl = when {
-                    r.volRatio >= 10.0 -> 3
-                    r.volRatio >= 5.0 -> 2
-                    else -> 1
-                }
-                addChartEvent(r.symbol, ChartEvent(candleStart, "vol", lvl))
+                addChartEvent(r.symbol, ChartEvent(candleStart, "vol", 1))
             }
         }
 
@@ -1093,7 +1074,8 @@ class MainActivity : Activity() {
             val pnlPct = openTrade.unrealizedPnlPct(r.price)
             val dir = if (openTrade.isLong) "🟢 LONG" else "🔴 SHORT"
             val pnlSign = if (pnl >= 0) "+" else ""
-            sb.appendLine("📈 Открыта $dir · $${"%.2f".format(openTrade.sizeUsd)} · $pnlSign$${"%.2f".format(pnl)} ($pnlSign${"%.1f".format(pnlPct)}%)")
+            val autoBadge = if (openTrade.isAuto) " 🤖" else ""
+            sb.appendLine("📈 Открыта $dir$autoBadge · $${"%.2f".format(openTrade.sizeUsd)} · $pnlSign$${"%.2f".format(pnl)} ($pnlSign${"%.1f".format(pnlPct)}%)")
         } else {
             val sizeUsd = Prefs.paperTradeSize(this)
             sb.appendLine("💡 BUY $${"%.0f".format(sizeUsd)} / SELL $${"%.0f".format(sizeUsd)}")
@@ -1597,6 +1579,12 @@ class MainActivity : Activity() {
                     scanResults = combined.take(limit)
 
                     recordChartEvents(scanResults)
+
+                    val autoLiqTh = Prefs.liqThreshold(this)
+                    for (autoR in scanResults) {
+                        val autoLiq = MarketState.liqStatsCache[autoR.symbol]
+                        tryAutoTrade(autoR, autoLiq, autoLiqTh)
+                    }
 
                     val socketPool = topN.take(30)
                     startLiqSocket(socketPool)
@@ -2377,9 +2365,10 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
             val pnlColor = if (pnl >= 0) Color.rgb(120, 200, 140) else Color.rgb(220, 120, 120)
             val sign = if (pnl >= 0) "+" else ""
             val dir = if (open.isLong) "🟢 LONG" else "🔴 SHORT"
+            val autoBadge = if (open.isAuto) " 🤖" else ""
 
             val info = TextView(this)
-            info.text = "$dir · $${"%.2f".format(open.sizeUsd)} · $sign$${"%.2f".format(pnl)} ($sign${"%.1f".format(pnlPct)}%)"
+            info.text = "$dir$autoBadge · $${"%.2f".format(open.sizeUsd)} · $sign$${"%.2f".format(pnl)} ($sign${"%.1f".format(pnlPct)}%)"
             info.textSize = 13f
             info.setTypeface(null, Typeface.BOLD)
             info.setTextColor(pnlColor)
@@ -2462,6 +2451,27 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
         }
 
         return container
+    }
+
+    private fun tryAutoTrade(r: ScanResult, liq: LiqStats?, liqThreshold: Double) {
+        if (!Prefs.autoTradingEnabled(this)) return
+        if (liq == null) return
+        if (liq.total15m < liqThreshold) return
+        if (liq.trend == "rising") return
+        if (r.price <= 0) return
+        if (PaperTrading.hasOpenFor(r.symbol)) return
+
+        val isLong: Boolean = when (r.signalType) {
+            "long" -> true
+            "short" -> false
+            else -> !liq.dominantIsLong
+        }
+
+        val size = Prefs.paperTradeSize(this)
+        PaperTrading.openTrade(
+            this, r.symbol, isLong, r.price, size,
+            buildContextSnapshot(r), isAuto = true
+        )
     }
 
     private fun buildContextSnapshot(r: ScanResult): PaperTrading.ContextSnapshot {

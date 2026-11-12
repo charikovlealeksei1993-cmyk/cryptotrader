@@ -203,4 +203,12 @@ object Prefs {
 
     fun signalTf(c: Context): String = sp(c).getString("signalTf", "1") ?: "1"
     fun setSignalTf(c: Context, v: String) = sp(c).edit().putString("signalTf", v).apply()
+
+    // ================== Авто-торговля ==================
+
+    fun autoTradingEnabled(c: Context): Boolean =
+        sp(c).getBoolean("autoTradingEnabled", false)
+
+    fun setAutoTradingEnabled(c: Context, v: Boolean) =
+        sp(c).edit().putBoolean("autoTradingEnabled", v).apply()
 }

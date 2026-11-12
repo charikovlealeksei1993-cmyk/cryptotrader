@@ -69,7 +69,8 @@ object PaperTrading {
         isLong: Boolean,
         price: Double,
         sizeUsd: Double,
-        ctx: ContextSnapshot
+        ctx: ContextSnapshot,
+        isAuto: Boolean = false
     ): PaperTrade? {
         if (price <= 0 || sizeUsd <= 0) return null
         synchronized(lock) {
@@ -115,7 +116,8 @@ object PaperTrading {
                 ctxObImbalance = ctx.obImbalance,
                 ctxSignalType = ctx.signalType,
                 ctxSignalStrength = ctx.signalStrength,
-                ctxSignalPattern = ctx.signalPattern
+                ctxSignalPattern = ctx.signalPattern,
+                isAuto = isAuto
             )
             _trades.add(trade)
             _balance -= sizeUsd

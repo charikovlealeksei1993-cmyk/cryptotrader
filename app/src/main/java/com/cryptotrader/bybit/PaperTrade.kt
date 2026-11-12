@@ -41,7 +41,8 @@ data class PaperTrade(
     val ctxObImbalance: Double = 0.0,
     val ctxSignalType: String = "",
     val ctxSignalStrength: String = "",
-    val ctxSignalPattern: String = ""
+    val ctxSignalPattern: String = "",
+    val isAuto: Boolean = false
 ) {
     val isOpen: Boolean get() = exitPrice <= 0.0 && exitTime <= 0L
     val quantity: Double get() = if (entryPrice > 0) sizeUsd / entryPrice else 0.0
@@ -109,6 +110,7 @@ data class PaperTrade(
         put("ctxSignalType", ctxSignalType)
         put("ctxSignalStrength", ctxSignalStrength)
         put("ctxSignalPattern", ctxSignalPattern)
+        put("isAuto", isAuto)
     }
 
     companion object {
@@ -147,7 +149,8 @@ data class PaperTrade(
             ctxObImbalance = o.optDouble("ctxObImbalance", 0.0),
             ctxSignalType = o.optString("ctxSignalType", ""),
             ctxSignalStrength = o.optString("ctxSignalStrength", ""),
-            ctxSignalPattern = o.optString("ctxSignalPattern", "")
+            ctxSignalPattern = o.optString("ctxSignalPattern", ""),
+            isAuto = o.optBoolean("isAuto", false)
         )
 
         fun listToJson(trades: List<PaperTrade>): String {

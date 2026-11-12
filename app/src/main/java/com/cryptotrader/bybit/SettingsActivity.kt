@@ -26,6 +26,7 @@ class SettingsActivity : Activity() {
 
     private lateinit var liqToggle: Button
     private lateinit var speedToggle: Button
+    private lateinit var autoToggle: Button
     private lateinit var volumeToggle: Button
     private lateinit var liqSoundBtn: Button
     private lateinit var speedSoundBtn: Button
@@ -545,6 +546,31 @@ liqThresholdLabel.text = formatThreshold(Prefs.liqThreshold(this))
         }
         root.addView(analysisBtn)
 
+        // ===== Авто-торговля =====
+        val autoTitle = TextView(this)
+        autoTitle.text = "🤖 Авто-торговля"
+        autoTitle.textSize = 20f
+        autoTitle.setTypeface(null, android.graphics.Typeface.BOLD)
+        autoTitle.setTextColor(Prefs.text(this))
+        autoTitle.setPadding(0, 24, 0, 12)
+        root.addView(autoTitle)
+
+        autoToggle = Button(this)
+        autoToggle.textSize = 15f
+        autoToggle.isAllCaps = false
+        autoToggle.setOnClickListener {
+            Prefs.setAutoTradingEnabled(this, !Prefs.autoTradingEnabled(this))
+            updateAutoToggle()
+        }
+        root.addView(autoToggle)
+
+        val autoHint = TextView(this)
+        autoHint.text = "Открывает виртуальные сделки автоматически, когда каскад ликвидаций затухает. Направление — по сигналу, если нет — против горящей стороны. Размер/SL/TP — из настроек."
+        autoHint.textSize = 13f
+        autoHint.setTextColor(Prefs.textDim(this))
+        autoHint.setPadding(0, 4, 0, 20)
+        root.addView(autoHint)
+
         // ===== Назад =====
         val back = Button(this)
         back.text = "← Назад"
@@ -578,6 +604,7 @@ liqThresholdLabel.text = formatThreshold(Prefs.liqThreshold(this))
         updateTimeoutButtons()
         updateNotifButtons()
         updateSoundButtons()
+        updateAutoToggle()
     }
 
     private fun formatTimeout(min: Int): String = when (min) {
@@ -651,6 +678,10 @@ liqThresholdLabel.text = formatThreshold(Prefs.liqThreshold(this))
         "volume" -> PICK_SOUND_VOLUME
         else -> PICK_SOUND_MAIN
     }
+    private fun updateAutoToggle() {
+        applyToggleStyle(autoToggle, Prefs.autoTradingEnabled(this))
+    }
+
 
     private fun updateNotifButtons() {
         applyToggleStyle(liqToggle, Prefs.notifEnabled(this, "liquidation"))
