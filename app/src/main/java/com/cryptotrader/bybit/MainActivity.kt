@@ -733,22 +733,15 @@ class MainActivity : Activity() {
         val cutoff = now - 24 * 60 * 60_000L
 
         for (r in results) {
-            val sp = synchronized(MarketState.liveLock) { MarketState.liveSpeeds[r.symbol] }
-            if (sp != null && sp.accelerating) {
-                addChartEvent(r.symbol, ChartEvent(candleStart, "accel", 1))
-            }
             val liq = MarketState.liqStatsCache[r.symbol]
             if (liq != null && liq.total15m >= liqThreshold) {
                 addChartEvent(r.symbol, ChartEvent(candleStart, "liq", 1))
-            }
-            if (r.signals.any { it.type == "volume" }) {
-                addChartEvent(r.symbol, ChartEvent(candleStart, "vol", 1))
             }
         }
 
         synchronized(MarketState.chartEventsLock) {
             for (list in MarketState.chartEvents.values) {
-                list.removeAll { it.time < cutoff }
+                list.removeAll { it.time < cutoff || it.type != "liq" }
             }
         }
     }
@@ -2457,20 +2450,31 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
         if (!Prefs.autoTradingEnabled(this)) return
         if (liq == null) return
         if (liq.total15m < liqThreshold) return
-        if (liq.trend == "rising") return
+        val enterAtStart = Prefs.autoEnterAtStart(this)
+        if (enterAtStart) {
+            if (liq.trend != "rising") return
+        } else {
+            if (liq.trend == "rising") return
+        }
         if (r.price <= 0) return
         if (PaperTrading.hasOpenFor(r.symbol)) return
 
+        val autoWith = Prefs.autoDirectionWith(this)
         val isLong: Boolean = when (r.signalType) {
             "long" -> true
             "short" -> false
-            else -> !liq.dominantIsLong
+            else -> if (autoWith) liq.dominantIsLong else !liq.dominantIsLong
         }
+
+        val baseCtx = buildContextSnapshot(r)
+        val ctx = if (r.signalType.isEmpty()) {
+            baseCtx.copy(signalPattern = if (autoWith) "AUTO_WITH" else "AUTO_AGAINST")
+        } else baseCtx
 
         val size = Prefs.paperTradeSize(this)
         PaperTrading.openTrade(
             this, r.symbol, isLong, r.price, size,
-            buildContextSnapshot(r), isAuto = true
+            ctx, isAuto = true
         )
     }
 

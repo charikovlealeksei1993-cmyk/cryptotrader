@@ -211,4 +211,16 @@ object Prefs {
 
     fun setAutoTradingEnabled(c: Context, v: Boolean) =
         sp(c).edit().putBoolean("autoTradingEnabled", v).apply()
+
+    fun autoDirectionWith(c: Context): Boolean =
+        sp(c).getBoolean("autoDirectionWith", false)
+
+    fun setAutoDirectionWith(c: Context, v: Boolean) =
+        sp(c).edit().putBoolean("autoDirectionWith", v).apply()
+
+    fun autoEnterAtStart(c: Context): Boolean =
+        sp(c).getBoolean("autoEnterAtStart", false)
+
+    fun setAutoEnterAtStart(c: Context, v: Boolean) =
+        sp(c).edit().putBoolean("autoEnterAtStart", v).apply()
 }
