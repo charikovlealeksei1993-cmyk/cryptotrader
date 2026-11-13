@@ -556,6 +556,43 @@ class MainActivity : Activity() {
         updateBalanceLabel()
     }
 
+    private fun dirForFlow(flow: String): String = when (flow) {
+        "new_long" -> "🟢"
+        "short_squeeze" -> "🟢"
+        "new_short" -> "🔴"
+        "long_squeeze" -> "🔴"
+        else -> "⚪"
+    }
+
+    private fun dirForLiq(liq: LiqStats?): String {
+        if (liq == null) return "⚪"
+        return if (liq.dominantIsLong) "🔴" else "🟢"
+    }
+
+    private fun dirForSpeed(pct: Double): String = when {
+        pct > 0.05 -> "🟢"
+        pct < -0.05 -> "🔴"
+        else -> "⚪"
+    }
+
+    private fun dirForOb(imb: Double): String = when {
+        imb > 0.3 -> "🟢"
+        imb < -0.3 -> "🔴"
+        else -> "⚪"
+    }
+
+    private fun dirForAcc(type: String): String = when (type) {
+        "long" -> "🟢"
+        "short" -> "🔴"
+        else -> "⚪"
+    }
+
+    private fun dirForMove(movePct: Double): String = when {
+        movePct > 0.01 -> "🟢"
+        movePct < -0.01 -> "🔴"
+        else -> "⚪"
+    }
+
     private fun updateBalanceLabel() {
         try {
             val bal = PaperTrading.balance()
@@ -758,7 +795,7 @@ class MainActivity : Activity() {
     private fun applyChartData(candles: List<Candle>, ls: List<LsPoint>) {
         allCandles = candles
         visibleCount = min(100, candles.size)
-        offset = max(0, candles.size - visibleCount)
+        offset = max(0, candles.size - visibleCount + visibleCount / 5)
         chartView.resetZoomY()
         chartView.setData(candles, offset, visibleCount, Prefs.chartType(this), Prefs.theme(this))
         chartView.setLsPoints(ls)
@@ -912,7 +949,7 @@ class MainActivity : Activity() {
         sb.appendLine("💰 24ч: ${UiUtils.formatMoney(r.turnover24h)} · 1ч: ${UiUtils.formatMoney(r.turnover1h)} (${"%.1f".format(hourPct)}%)")
 
         if (r.signals.isNotEmpty()) {
-            r.signals.forEach { sig -> sb.appendLine("${sig.emoji} ${sig.detail}") }
+            r.signals.forEach { sig -> sb.appendLine("${sig.emoji} ${sig.detail} " + dirForMove(sig.movePct)) }
         }
 
         if (r.deltaPct1m != 0.0 || r.flowStatus.isNotEmpty()) {
@@ -934,7 +971,7 @@ class MainActivity : Activity() {
                 "long_squeeze" -> "Long Squeeze"
                 else -> "Churn"
             }
-            sb.appendLine("Δ 1м: $deltaEmoji $deltaSign${"%.0f".format(r.deltaPct1m)}% ($realDeltaStr buy/sell) · $flowLabel")
+            sb.appendLine("Δ 1м: $deltaEmoji $deltaSign${"%.0f".format(r.deltaPct1m)}% ($realDeltaStr buy/sell) · $flowLabel " + dirForFlow(r.flowStatus))
         }
 
         val liq = getCachedLiqStats(r.symbol)
@@ -946,7 +983,7 @@ class MainActivity : Activity() {
                 "falling" -> "🪫 затухает"
                 else -> "➡️ стабильно"
             }
-            sb.appendLine("💥 Ликвидации 15м: ${UiUtils.formatMoney(liq.total15m)} · $who ${"%.0f".format(domPct)}% · $trendIcon")
+            sb.appendLine("💥 Ликвидации 15м: ${UiUtils.formatMoney(liq.total15m)} · $who ${"%.0f".format(domPct)}% · $trendIcon " + dirForLiq(liq))
             val peakList = synchronized(MarketState.cascadePeakLock) {
                 MarketState.cascadePeaks[r.symbol]?.toList() ?: emptyList()
             }
@@ -1003,7 +1040,7 @@ class MainActivity : Activity() {
                 imb <= -0.30 -> "продавцы"
                 else -> "баланс"
             }
-            sb.appendLine("⚖️ Стакан: $sign${"%.2f".format(imb)} ($label)")
+            sb.appendLine("⚖️ Стакан: $sign${"%.2f".format(imb)} ($label) " + dirForOb(imb))
             if ((obInfo.bidWallPrice > 0 || obInfo.askWallPrice > 0) && (obInfo.bidWallUsd >= 1000.0 || obInfo.askWallUsd >= 1000.0)) {
                 val bidStar = if (obInfo.bidWallUsd > obInfo.askWallUsd) " ★" else ""
                 val askStar = if (obInfo.askWallUsd > obInfo.bidWallUsd) " ★" else ""
@@ -1033,7 +1070,7 @@ class MainActivity : Activity() {
                 else -> "·"
             }
             val tsSign = if (ts.pctPerMin >= 0) "+" else ""
-            sb.appendLine("$tsEmoji $tsSign${"%.2f".format(ts.pctPerMin)}%/мин (${ts.tradeCount} сделок)")
+            sb.appendLine("$tsEmoji $tsSign${"%.2f".format(ts.pctPerMin)}%/мин (${ts.tradeCount} сделок) " + dirForSpeed(ts.pctPerMin))
         }
 
         if (r.signalType.isEmpty()) {
@@ -1057,7 +1094,7 @@ class MainActivity : Activity() {
             if (acc.level.isNotEmpty()) {
                 val accEmoji = when (acc.level) { "strong" -> "🔥"; "medium" -> "🟢"; else -> "🟡" }
                 val accDir = if (acc.type == "long") "лонг" else "шорт"
-                sb.appendLine("$accEmoji Накопление $accDir · OI +${"%.2f".format(acc.oiChangePct)}% (${acc.oiBarsPositive}/9) · Диапазон ${"%.2f".format(acc.rangePct)}% · Delta ${UiUtils.formatMoney(acc.deltaUsd)}")
+                sb.appendLine("$accEmoji Накопление $accDir · OI +${"%.2f".format(acc.oiChangePct)}% (${acc.oiBarsPositive}/9) · Диапазон ${"%.2f".format(acc.rangePct)}% · Delta ${UiUtils.formatMoney(acc.deltaUsd)} " + dirForAcc(acc.type))
             }
         }
 
@@ -1855,7 +1892,7 @@ class MainActivity : Activity() {
 
         if (volSpike && (sharpMove || bigTurnover)) {
             signals.add(Signal("volume", "🚀", "Резкий скачок",
-                "×${"%.1f".format(volRatio)} объём · ${"%+.2f".format(movePct)}% за мин"))
+                "×${"%.1f".format(volRatio)} объём · ${"%+.2f".format(movePct)}% за мин", movePct = movePct))
         } else if (bigTurnover && sharpMove) {
             signals.add(Signal("volume", "🚀", "Резкое движение",
                 "${"%+.2f".format(movePct)}% · ${UiUtils.formatMoney(turnover1m)} за мин"))
@@ -1961,6 +1998,35 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
         otherList.forEach { listContainer.addView(makeScanRow(it)) }
     }
 
+    private fun makeDirRow(
+        text: String,
+        dir: String,
+        color: Int,
+        size: Float,
+        bold: Boolean = false,
+        padTop: Int = 0
+    ): LinearLayout {
+        val box = LinearLayout(this)
+        box.orientation = LinearLayout.HORIZONTAL
+        box.setPadding(0, padTop, 0, 0)
+        val tv = TextView(this)
+        tv.text = text
+        tv.setTextColor(color)
+        tv.textSize = size
+        if (bold) tv.setTypeface(null, Typeface.BOLD)
+        tv.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        box.addView(tv)
+        val dv = TextView(this)
+        dv.text = dir
+        dv.textSize = size
+        dv.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        box.addView(dv)
+        return box
+    }
+
     private fun makeScanRow(r: ScanResult): View {
         val row = LinearLayout(this)
         row.orientation = LinearLayout.VERTICAL
@@ -2060,7 +2126,6 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
         row.addView(volLine)
 
         if (r.deltaPct1m != 0.0 || r.flowStatus.isNotEmpty()) {
-            val deltaLine = TextView(this)
             val deltaEmoji = when {
                 r.deltaPct1m > 20 -> "🟢"
                 r.deltaPct1m < -20 -> "🔴"
@@ -2084,11 +2149,13 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
                 r.realDeltaUsd > 0 -> "+${UiUtils.formatMoney(r.realDeltaUsd)}"
                 else -> "-${UiUtils.formatMoney(-r.realDeltaUsd)}"
             }
-            deltaLine.text = "Δ 1м: $deltaEmoji $deltaSign${"%.0f".format(r.deltaPct1m)}% ($realDeltaStr buy/sell)  ·  $flowLabel"
-            deltaLine.setTextColor(deltaColor)
-            deltaLine.textSize = 16f
-            deltaLine.setPadding(0, 2, 0, 0)
-            row.addView(deltaLine)
+            row.addView(makeDirRow(
+                "Δ 1м: $deltaEmoji $deltaSign${"%.0f".format(r.deltaPct1m)}% ($realDeltaStr buy/sell)  ·  $flowLabel",
+                dirForFlow(r.flowStatus),
+                deltaColor,
+                16f,
+                padTop = 2
+            ))
         }
 
         if (r.openInterest > 0) {
@@ -2133,7 +2200,6 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
         row.addView(lsLine)
 
         if (liq != null && liq.total15m >= liqThreshold) {
-            val liqLine = TextView(this)
             val direction = if (liq.dominantIsLong) "🐂 лонги" else "🐻 шорты"
             val domPct = if (liq.dominantIsLong) liq.longPct else liq.shortPct
             val trendIcon = when (liq.trend) {
@@ -2141,17 +2207,18 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
                 "falling" -> "🪫 затухает"
                 else -> "➡️ стабильно"
             }
-            liqLine.text = "💥 Ликвидации: ${UiUtils.formatMoney(liq.total15m)} · $direction ${"%.0f".format(domPct)}% · $trendIcon"
-            liqLine.textSize = 18f
-            liqLine.setTypeface(null, Typeface.BOLD)
-            liqLine.setTextColor(
+            row.addView(makeDirRow(
+                "💥 Ликвидации: ${UiUtils.formatMoney(liq.total15m)} · $direction ${"%.0f".format(domPct)}% · $trendIcon",
+                dirForLiq(liq),
                 when (liq.trend) {
                     "rising" -> Color.rgb(255, 120, 120)
                     "falling" -> Color.rgb(255, 200, 60)
                     else -> Prefs.text(this)
-                }
-            )
-            row.addView(liqLine)
+                },
+                18f,
+                bold = true,
+                padTop = 0
+            ))
             val peakList = synchronized(MarketState.cascadePeakLock) {
                 MarketState.cascadePeaks[r.symbol]?.toList() ?: emptyList()
             }
@@ -2224,33 +2291,33 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
                     else -> "·"
                 }
                 val tsSign = if (ts.pctPerMin >= 0) "+" else ""
-                val tsLine = TextView(this)
-                tsLine.text = "$tsEmoji $tsSign${"%.2f".format(ts.pctPerMin)}%/мин (${ts.tradeCount} сделок)"
-                tsLine.setTextColor(
+                row.addView(makeDirRow(
+                    "$tsEmoji $tsSign${"%.2f".format(ts.pctPerMin)}%/мин (${ts.tradeCount} сделок)",
+                    dirForSpeed(ts.pctPerMin),
                     when {
                         ts.pctPerMin > 0.3 -> Color.rgb(120, 255, 150)
                         ts.pctPerMin < -0.3 -> Color.rgb(255, 150, 150)
                         else -> Prefs.textDim(this)
-                    }
-                )
-                tsLine.textSize = 17f
-                row.addView(tsLine)
+                    },
+                    17f,
+                    padTop = 0
+                ))
             }
 
         if (r.signals.isNotEmpty()) {
             r.signals.forEach { sig ->
-                val sigLine = TextView(this)
-                sigLine.text = "${sig.emoji} ${sig.detail}"
-                sigLine.setTextColor(Color.rgb(255, 200, 60))
-                sigLine.textSize = 16f
-                sigLine.setTypeface(null, Typeface.BOLD)
-                sigLine.setPadding(0, 2, 0, 0)
-                row.addView(sigLine)
+                row.addView(makeDirRow(
+                    "${sig.emoji} ${sig.detail}",
+                    dirForMove(sig.movePct),
+                    Color.rgb(255, 200, 60),
+                    16f,
+                    bold = true,
+                    padTop = 2
+                ))
             }
         }
 
         val obInfo = synchronized(MarketState.obLock) { MarketState.obInfos[r.symbol] }
-        val obLine = TextView(this)
         if (obInfo != null) {
             val imb = obInfo.imbalance
             val (icon, color, label) = when {
@@ -2259,10 +2326,12 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
                 else -> Triple("⚪", Prefs.textDim(this), "баланс")
             }
             val sign = if (imb >= 0) "+" else ""
-            obLine.text = "⚖️ Стакан: $icon $sign${"%.2f".format(imb)} ($label)"
-            obLine.setTextColor(color)
-            obLine.textSize = 17f
-            row.addView(obLine)
+            row.addView(makeDirRow(
+                "⚖️ Стакан: $icon $sign${"%.2f".format(imb)} ($label)",
+                dirForOb(imb),
+                color,
+                17f
+            ))
 
             if ((obInfo.bidWallPrice > 0 || obInfo.askWallPrice > 0) && (obInfo.bidWallUsd >= 1000.0 || obInfo.askWallUsd >= 1000.0)) {
                 val wallLine = TextView(this)
@@ -2292,10 +2361,12 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
                 row.addView(wallLine)
             }
         } else {
-            obLine.text = "⚖️ Стакан: собираю данные..."
-            obLine.setTextColor(Prefs.textDim(this))
-            obLine.textSize = 17f
-            row.addView(obLine)
+            row.addView(makeDirRow(
+                "⚖️ Стакан: собираю данные...",
+                "⚪",
+                Prefs.textDim(this),
+                17f
+            ))
         }
 
         r.accumulation?.let { acc ->
@@ -2303,13 +2374,14 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
                 val accEmoji = when (acc.level) { "strong" -> "🔥"; "medium" -> "🟢"; else -> "🟡" }
                 val accDir = if (acc.type == "long") "лонг" else "шорт"
                 val accColor = when (acc.level) { "strong" -> Color.rgb(255, 120, 60); "medium" -> Color.rgb(120, 200, 140); else -> Color.rgb(255, 200, 60) }
-                val accLine = TextView(this)
-                accLine.text = "$accEmoji Накопление $accDir · OI +${"%.2f".format(acc.oiChangePct)}% (${acc.oiBarsPositive}/9) · Диапазон ${"%.2f".format(acc.rangePct)}% · Delta ${UiUtils.formatMoney(acc.deltaUsd)}"
-                accLine.setTextColor(accColor)
-                accLine.textSize = 17f
-                accLine.setTypeface(null, Typeface.BOLD)
-                accLine.setPadding(0, 4, 0, 0)
-                row.addView(accLine)
+                row.addView(makeDirRow(
+                    "$accEmoji Накопление $accDir · OI +${"%.2f".format(acc.oiChangePct)}% (${acc.oiBarsPositive}/9) · Диапазон ${"%.2f".format(acc.rangePct)}% · Delta ${UiUtils.formatMoney(acc.deltaUsd)}",
+                    dirForAcc(acc.type),
+                    accColor,
+                    17f,
+                    bold = true,
+                    padTop = 4
+                ))
             }
         }
 

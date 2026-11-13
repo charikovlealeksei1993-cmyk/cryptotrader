@@ -11,8 +11,8 @@ object Prefs {
     val NOTIF_TYPES = listOf("liquidation", "speed", "volume")
 
     const val LIQ_THRESHOLD_MIN = 10_000.0
-    const val LIQ_THRESHOLD_MAX = 50_000.0
-    const val LIQ_THRESHOLD_STEP = 1_000.0
+    const val LIQ_THRESHOLD_MAX = 200_000.0
+    const val LIQ_THRESHOLD_STEP = 5_000.0
 
     const val SCAN_LIMIT_MIN = 5
     const val SCAN_LIMIT_MAX = 20

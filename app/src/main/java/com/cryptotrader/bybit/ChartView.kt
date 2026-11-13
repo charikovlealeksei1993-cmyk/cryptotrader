@@ -95,7 +95,8 @@ class ChartView(context: Context) : View(context) {
                     if (nv != visible) {
                         val re = offset + visible
                         visible = nv
-                        val mo = max(0, candles.size - visible)
+                        val rp2 = visible / 5
+                        val mo = max(0, candles.size - visible + rp2)
                         offset = (re - visible).coerceIn(0, mo)
                         heavyBitmap = null
                         onViewportChanged?.invoke(offset, visible)
@@ -116,7 +117,8 @@ class ChartView(context: Context) : View(context) {
                 val cpp = visible.toFloat() / width.toFloat()
                 val sh = (dx * cpp).toInt()
                 if (sh != 0) {
-                    offset = (offset + sh).coerceIn(0, max(0, candles.size - visible))
+                    val rp = visible / 5
+                    offset = (offset + sh).coerceIn(0, max(0, candles.size - visible + rp))
                     heavyBitmap = null
                     onViewportChanged?.invoke(offset, visible)
                     invalidate()
@@ -309,7 +311,7 @@ class ChartView(context: Context) : View(context) {
 
         val maxVol = slice.maxOf { it.volume }.takeIf { it > 0 } ?: 1.0
         val plotW = w - pL - pR
-        val step = plotW / slice.size
+        val step = plotW / visible
         val bodyW = max(2f, step * 0.6f)
 
         paint.color = gridColor
@@ -562,7 +564,7 @@ canvas.save()
         val candleH = totalPlot * 0.64f
         val candleTop = pT
         val plotW = w - pL - pR
-        val step = plotW / sliceSize
+        val step = plotW / visible
 
         val slice = candles.subList(offset, offset + sliceSize)
         val minP = if (yMax > yMin) yMin else slice.minOf { it.low }
@@ -725,7 +727,7 @@ canvas.save()
         val candleH = totalPlot * 0.64f
         val candleTop = pT
         val plotW = w - pL - pR
-        val step = plotW / sliceSize
+        val step = plotW / visible
         val slice = candles.subList(offset, offset + sliceSize)
         val minP = if (yMax > yMin) yMin else slice.minOf { it.low }
         val maxP = if (yMax > yMin) yMax else slice.maxOf { it.high }

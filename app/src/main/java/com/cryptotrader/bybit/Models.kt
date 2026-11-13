@@ -13,7 +13,8 @@ data class Signal(
     val type: String,
     val emoji: String,
     val name: String,
-    val detail: String
+    val detail: String,
+    val movePct: Double = 0.0
 )
 
 data class Trade(
