@@ -440,6 +440,47 @@ liqThresholdLabel.text = formatThreshold(Prefs.liqThreshold(this))
         liqThresholdHint.setPadding(0, 4, 0, 12)
         root.addView(liqThresholdHint)
 
+        val lttLabel = TextView(this)
+        lttLabel.textSize = 16f
+        lttLabel.setTextColor(Prefs.text(this))
+
+        fun formatLtt(v: Double): String {
+            val k = (v / 1000).toInt()
+            return "Крупные сделки: ≥$${k}K"
+        }
+
+        lttLabel.text = formatLtt(Prefs.largeTradeThreshold(this))
+        lttLabel.setPadding(0, 16, 0, 8)
+        root.addView(lttLabel)
+
+        val lttStepI = Prefs.LARGE_TRADE_STEP.toInt()
+        val lttMinI = Prefs.LARGE_TRADE_MIN.toInt()
+        val lttMaxI = Prefs.LARGE_TRADE_MAX.toInt()
+        val lttSteps = (lttMaxI - lttMinI) / lttStepI
+
+        val lttSeek = SeekBar(this)
+        lttSeek.max = lttSteps
+        lttSeek.progress = ((Prefs.largeTradeThreshold(this).toInt() - lttMinI) / lttStepI).coerceIn(0, lttSteps)
+        lttSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
+                val v = (lttMinI + progress * lttStepI).toDouble()
+                lttLabel.text = formatLtt(v)
+            }
+            override fun onStartTrackingTouch(sb: SeekBar?) {}
+            override fun onStopTrackingTouch(sb: SeekBar?) {
+                val v = (lttMinI + (sb?.progress ?: 0) * lttStepI).toDouble()
+                Prefs.setLargeTradeThreshold(this@SettingsActivity, v)
+            }
+        })
+        root.addView(lttSeek)
+
+        val lttHint = TextView(this)
+        lttHint.text = "Показывать в карточке сделки крупнее этого порога"
+        lttHint.textSize = 13f
+        lttHint.setTextColor(Prefs.textDim(this))
+        lttHint.setPadding(0, 4, 0, 12)
+        root.addView(lttHint)
+
         fun notifRow(label: String, type: String): Pair<Button, Button> {
             val l = TextView(this)
             l.text = label

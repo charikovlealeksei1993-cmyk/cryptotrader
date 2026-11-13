@@ -13,6 +13,9 @@ object Prefs {
     const val LIQ_THRESHOLD_MIN = 10_000.0
     const val LIQ_THRESHOLD_MAX = 200_000.0
     const val LIQ_THRESHOLD_STEP = 5_000.0
+    const val LARGE_TRADE_MIN = 10_000.0
+    const val LARGE_TRADE_MAX = 100_000.0
+    const val LARGE_TRADE_STEP = 5_000.0
 
     const val SCAN_LIMIT_MIN = 5
     const val SCAN_LIMIT_MAX = 20
@@ -75,6 +78,15 @@ object Prefs {
     fun setLiqThreshold(c: Context, v: Double) {
         val clamped = v.coerceIn(LIQ_THRESHOLD_MIN, LIQ_THRESHOLD_MAX)
         sp(c).edit().putFloat("liqThreshold", clamped.toFloat()).apply()
+    }
+
+    fun largeTradeThreshold(c: Context): Double =
+        sp(c).getFloat("largeTradeThreshold", LARGE_TRADE_MIN.toFloat()).toDouble()
+            .coerceIn(LARGE_TRADE_MIN, LARGE_TRADE_MAX)
+
+    fun setLargeTradeThreshold(c: Context, v: Double) {
+        val clamped = v.coerceIn(LARGE_TRADE_MIN, LARGE_TRADE_MAX)
+        sp(c).edit().putFloat("largeTradeThreshold", clamped.toFloat()).apply()
     }
 
     fun soundUri(c: Context): Uri? {

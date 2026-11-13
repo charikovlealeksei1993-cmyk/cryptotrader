@@ -993,9 +993,23 @@ class MainActivity : Activity() {
                     val percent = (liq.total15m / avgPeak * 100).toInt()
                     val maxPeak = peakList.maxOf { it.sum }
                     val exceeded = liq.total15m > maxPeak
-                    val peaksStr = peakList.joinToString(", ") { UiUtils.formatMoney(it.sum) }
+                    val peaksStr = peaksString(peakList)
                     val suffix = if (exceeded) " (перебит максимум!)" else ""
                     sb.appendLine("   Прошлые пики: $peaksStr · сейчас $percent% от среднего$suffix")
+                }
+            }
+            val ltList = synchronized(MarketState.largeTradesLock) {
+                MarketState.largeTrades[r.symbol]?.toList() ?: emptyList()
+            }
+            if (ltList.isNotEmpty()) {
+                val ltK = (Prefs.largeTradeThreshold(this) / 1000).toInt()
+                sb.appendLine("🐋 Крупные (≥$${ltK}K): ${ltList.size} шт")
+                val last3 = ltList.takeLast(3).reversed()
+                for (lt in last3) {
+                    val ago = ((System.currentTimeMillis() - lt.time) / 60_000L).coerceAtLeast(0)
+                    val sign = if (lt.isBuy) "+" else "-"
+                    val emoji = if (lt.isBuy) "🟢" else "🔴"
+                    sb.appendLine("   $emoji $sign${UiUtils.formatMoney(lt.usd)} @ ${"%.4f".format(lt.price)} · ${ago}м")
                 }
             }
             val zoneAhead = if (!liq.dominantIsLong) r.peakForecast > r.price else r.peakForecast < r.price
@@ -1293,7 +1307,18 @@ class MainActivity : Activity() {
         stopTradeDeltaSocket()
         currentDeltaSymbols = symbols
         tradeDeltaSocket = TradeDeltaSocket(symbols) { symbol, time, price, size, isBuy ->
-            tradeDeltaAnalyzer.addTrade(symbol, time, price * size, isBuy)
+            val usd = price * size
+            tradeDeltaAnalyzer.addTrade(symbol, time, usd, isBuy)
+            val ltThreshold = Prefs.largeTradeThreshold(this)
+            if (usd >= ltThreshold) {
+                synchronized(MarketState.largeTradesLock) {
+                    val buf = MarketState.largeTrades.getOrPut(symbol) { ArrayList() }
+                    buf.add(LargeTrade(time, usd, isBuy, price))
+                    val cutoff = System.currentTimeMillis() - 60 * 60_000L
+                    buf.removeAll { it.time < cutoff }
+                    while (buf.size > 20) buf.removeAt(0)
+                }
+            }
             synchronized(MarketState.liveLock) {
                 val buf = MarketState.liveBuffer.getOrPut(symbol) { ArrayList() }
                 val lastTime = buf.lastOrNull()?.time ?: 0L
@@ -2027,6 +2052,21 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
         return box
     }
 
+    private fun isEscalating(peaks: List<CascadePeak>): Boolean {
+        if (peaks.size < 2) return false
+        for (i in 1 until peaks.size) {
+            if (peaks[i].sum <= peaks[i - 1].sum * 1.05) return false
+        }
+        return true
+    }
+
+    private fun peaksString(peaks: List<CascadePeak>): String {
+        val esc = isEscalating(peaks)
+        val sep = if (esc) " → " else ", "
+        val base = peaks.joinToString(sep) { UiUtils.formatMoney(it.sum) }
+        return if (esc) "$base 🔥" else base
+    }
+
     private fun makeScanRow(r: ScanResult): View {
         val row = LinearLayout(this)
         row.orientation = LinearLayout.VERTICAL
@@ -2228,7 +2268,7 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
                     val percent = (liq.total15m / avgPeak * 100).toInt()
                     val maxPeak = peakList.maxOf { it.sum }
                     val exceeded = liq.total15m > maxPeak
-                    val peaksStr = peakList.joinToString(", ") { UiUtils.formatMoney(it.sum) }
+                    val peaksStr = peaksString(peakList)
                     val peaksLine = TextView(this)
                     if (exceeded) {
                         peaksLine.text = "   Прошлые пики: $peaksStr · сейчас $percent% (перебит максимум!)"
@@ -2243,6 +2283,29 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
                 }
             }
 
+            val ltList = synchronized(MarketState.largeTradesLock) {
+                MarketState.largeTrades[r.symbol]?.toList() ?: emptyList()
+            }
+            if (ltList.isNotEmpty()) {
+                val ltK = (Prefs.largeTradeThreshold(this) / 1000).toInt()
+                val ltHeader = TextView(this)
+                ltHeader.text = "🐋 Крупные (≥$${ltK}K): ${ltList.size} шт"
+                ltHeader.setTextColor(Prefs.textDim(this))
+                ltHeader.textSize = 15f
+                ltHeader.setPadding(0, 4, 0, 0)
+                row.addView(ltHeader)
+                val last3 = ltList.takeLast(3).reversed()
+                for (lt in last3) {
+                    val ago = ((System.currentTimeMillis() - lt.time) / 60_000L).coerceAtLeast(0)
+                    val sign = if (lt.isBuy) "+" else "-"
+                    val emoji = if (lt.isBuy) "🟢" else "🔴"
+                    val ltLine = TextView(this)
+                    ltLine.text = "   $emoji $sign${UiUtils.formatMoney(lt.usd)} @ ${"%.4f".format(lt.price)} · ${ago}м"
+                    ltLine.setTextColor(if (lt.isBuy) Color.rgb(120, 200, 140) else Color.rgb(220, 120, 120))
+                    ltLine.textSize = 14f
+                    row.addView(ltLine)
+                }
+            }
             val zoneAhead = if (!liq.dominantIsLong) r.peakForecast > r.price else r.peakForecast < r.price
             if (r.peakForecast > 0 && zoneAhead) {
                 val peakLine = TextView(this)

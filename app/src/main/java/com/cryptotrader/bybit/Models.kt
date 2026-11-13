@@ -23,6 +23,13 @@ data class Trade(
     val size: Double
 )
 
+data class LargeTrade(
+    val time: Long,
+    val usd: Double,
+    val isBuy: Boolean,
+    val price: Double
+)
+
 data class LsPoint(
     val time: Long,
     val longPct: Double,

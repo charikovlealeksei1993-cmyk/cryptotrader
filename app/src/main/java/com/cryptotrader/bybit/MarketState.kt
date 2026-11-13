@@ -17,6 +17,8 @@ object MarketState {
     val liveSpeeds = HashMap<String, SpeedReading>()
     val liveTradeSpeeds = HashMap<String, TradeSpeedReading>()
     val liveLock = Any()
+    val largeTrades = HashMap<String, MutableList<LargeTrade>>()
+    val largeTradesLock = Any()
 
     // ===== Стакан =====
     val obInfos = HashMap<String, OrderbookInfo>()
