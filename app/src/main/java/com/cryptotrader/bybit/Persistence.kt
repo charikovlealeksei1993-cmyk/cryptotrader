@@ -39,7 +39,7 @@ object Persistence {
 
         root.put("liqBuffer", JSONObject().apply {
             state.liqBuffer.forEach { (k, v) ->
-                put(k, JSONArray().apply { v.forEach { put(encLiqEvent(it)) } })
+                put(k, JSONArray().apply { v.takeLast(500).forEach { put(encLiqEvent(it)) } })
             }
         })
 
@@ -89,6 +89,12 @@ object Persistence {
 
         root.put("cascadeTrackers", JSONObject().apply {
             state.cascadeTrackers.forEach { (k, v) -> put(k, encCascadeTracker(v)) }
+        })
+
+        root.put("liqClusters", JSONObject().apply {
+            state.liqClusters.forEach { (k, v) ->
+                put(k, JSONArray().apply { v.forEach { put(encLiqCluster(it)) } })
+            }
         })
 
         return root.toString()
@@ -176,8 +182,17 @@ object Persistence {
             cascadeTrackers[k] = decCascadeTracker(ctObj.getJSONObject(k))
         }
 
+        val liqClusters = HashMap<String, List<LiqCluster>>()
+        val lcObj = root.optJSONObject("liqClusters") ?: JSONObject()
+        lcObj.keys().forEach { k ->
+            val arr = lcObj.getJSONArray(k)
+            val list = ArrayList<LiqCluster>()
+            for (i in 0 until arr.length()) list.add(decLiqCluster(arr.getJSONObject(i)))
+            liqClusters[k] = list
+        }
+
         return AppState(savedAt, scanResults, liqBuffer, obInfos, liveSpeeds,
-            longRatioHistory, oiChangeHistory, signalHistory, signalMarkers, chartEvents, cascadePeaks, cascadeTrackers)
+            longRatioHistory, oiChangeHistory, signalHistory, signalMarkers, chartEvents, cascadePeaks, cascadeTrackers, liqClusters)
     }
 
     private fun encSignalMarker(v: SignalMarker): JSONObject = JSONObject().apply {
@@ -365,5 +380,18 @@ object Persistence {
     private fun decCascadeTracker(o: JSONObject): CascadeTracker = CascadeTracker(
         o.optDouble("maxSum", 0.0),
         o.optLong("lastGrowthTime", 0L)
+    )
+    private fun encLiqCluster(c: LiqCluster): JSONObject = JSONObject().apply {
+        put("priceLow", c.priceLow)
+        put("priceHigh", c.priceHigh)
+        put("usd", c.usd)
+        put("isLong", c.isLong)
+    }
+
+    private fun decLiqCluster(o: JSONObject): LiqCluster = LiqCluster(
+        o.optDouble("priceLow", 0.0),
+        o.optDouble("priceHigh", 0.0),
+        o.optDouble("usd", 0.0),
+        o.optBoolean("isLong", false)
     )
 }

@@ -20,6 +20,7 @@ data class SignalMarker(
     val sourceTf: String = ""
 )
 
+
 class ChartView(context: Context) : View(context) {
     private var candles: List<Candle> = emptyList()
     private var offset = 0
@@ -38,6 +39,7 @@ class ChartView(context: Context) : View(context) {
     private var bidWallUsd: Double = 0.0
     private var askWallPrice: Double = 0.0
     private var askWallUsd: Double = 0.0
+    private var liqClusters: List<LiqCluster> = emptyList()
 
     private var yMin: Double = 0.0
     private var yMax: Double = 0.0
@@ -249,6 +251,13 @@ class ChartView(context: Context) : View(context) {
         invalidate()
     }
 
+    fun setLiqClusters(clusters: List<LiqCluster>) {
+        liqClusters = clusters
+        recomputeYRange()
+        heavyBitmap = null
+        invalidate()
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val dark = theme == "dark"
@@ -271,6 +280,15 @@ class ChartView(context: Context) : View(context) {
         drawAccelMarkers(canvas)
         drawLiqMarkers(canvas)
         drawSignalMarkers(canvas)
+    }
+
+    fun exportBitmap(): android.graphics.Bitmap? {
+        if (width <= 0 || height <= 0) return null
+        return try {
+            val bmp = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
+            draw(android.graphics.Canvas(bmp))
+            bmp
+        } catch (_: Exception) { null }
     }
 
     private fun drawHeavy(canvas: Canvas) {
@@ -351,6 +369,37 @@ class ChartView(context: Context) : View(context) {
                 val t1 = candleTop + ((maxPAdj - max(c.open, c.close)) / rng * candleH).toFloat()
                 val b1 = candleTop + ((maxPAdj - min(c.open, c.close)) / rng * candleH).toFloat()
                 canvas.drawRect(x - bodyW / 2, t1, x + bodyW / 2, max(b1, t1 + 2f), paint)
+            }
+        }
+
+        if (liqClusters.isNotEmpty()) {
+            for (c in liqClusters) {
+                if (c.priceHigh < minPAdj || c.priceLow > maxPAdj) continue
+                val yHigh = candleTop + ((maxPAdj - c.priceHigh) / rng * candleH).toFloat()
+                val yLow = candleTop + ((maxPAdj - c.priceLow) / rng * candleH).toFloat()
+                val alpha = ((c.usd / 500_000.0).coerceIn(0.15, 0.6) * 255).toInt()
+                val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = if (c.isLong) Color.argb(alpha, 255, 80, 80)
+                            else Color.argb(alpha, 80, 255, 80)
+                    style = Paint.Style.FILL
+                }
+                canvas.drawRect(pL, yHigh, w - pR, yLow, fillPaint)
+                val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = if (c.isLong) Color.rgb(255, 100, 100)
+                            else Color.rgb(100, 255, 100)
+                    strokeWidth = 2f
+                    style = Paint.Style.STROKE
+                }
+                canvas.drawLine(pL, yHigh, w - pR, yHigh, borderPaint)
+                canvas.drawLine(pL, yLow, w - pR, yLow, borderPaint)
+                val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = if (c.isLong) Color.rgb(255, 150, 150)
+                            else Color.rgb(150, 255, 150)
+                    textSize = 28f
+                    typeface = Typeface.DEFAULT_BOLD
+                }
+                val mark = if (c.isLong) "🐂" else "🐻"
+                canvas.drawText("$mark ${formatUsd(c.usd)}", pL + 4, yHigh + 32, labelPaint)
             }
         }
         if (bidWallPrice > 0 && bidWallPrice in minPAdj..maxPAdj) {

@@ -153,7 +153,8 @@ data class AppState(
     val signalMarkers: Map<String, List<SignalMarker>> = emptyMap(),
     val chartEvents: Map<String, List<ChartEvent>> = emptyMap(),
     val cascadePeaks: Map<String, List<CascadePeak>> = emptyMap(),
-    val cascadeTrackers: Map<String, CascadeTracker> = emptyMap()
+    val cascadeTrackers: Map<String, CascadeTracker> = emptyMap(),
+    val liqClusters: Map<String, List<LiqCluster>> = emptyMap()
 )
 data class TradeSpeedReading(
     val pctPerMin: Double,
@@ -178,3 +179,10 @@ data class ChartEvent(
     val level: Int
 )
 
+
+data class LiqCluster(
+    val priceLow: Double,
+    val priceHigh: Double,
+    val usd: Double,
+    val isLong: Boolean
+)

@@ -34,6 +34,8 @@ import com.google.firebase.analytics.FirebaseAnalytics
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.io.File
+import java.io.FileOutputStream
 import java.util.Collections
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
@@ -63,6 +65,9 @@ class MainActivity : Activity() {
     private lateinit var listScroll: ScrollView
     private lateinit var chartView: ChartView
     private lateinit var chartTitle: TextView
+    private lateinit var chartTitleRow: LinearLayout
+    private lateinit var chartCopyBtn: Button
+    private lateinit var chartShareBtn: Button
     private lateinit var backButton: Button
     private lateinit var refreshButton: Button
     private lateinit var settingsButton: Button
@@ -341,6 +346,7 @@ class MainActivity : Activity() {
         cascadePeaks = synchronized(MarketState.cascadePeakLock) {
             MarketState.cascadePeaks.mapValues { ArrayList(it.value) }
         },
+        liqClusters = synchronized(MarketState.liqClustersLock) { MarketState.liqClusters.toMap() },
         cascadeTrackers = synchronized(MarketState.cascadeTrackerLock) {
             HashMap(MarketState.cascadeTrackers)
         }
@@ -429,6 +435,13 @@ class MainActivity : Activity() {
             }
         }
 
+        synchronized(MarketState.liqClustersLock) {
+            MarketState.liqClusters.clear()
+            state.liqClusters.forEach { (k, v) ->
+                MarketState.liqClusters[k] = ArrayList(v)
+            }
+        }
+
         if (scanResults.isNotEmpty()) {
             firstScanDone = true
         }
@@ -501,14 +514,41 @@ class MainActivity : Activity() {
         }
         root.addView(chartView)
 
+        chartTitleRow = LinearLayout(this)
+        chartTitleRow.orientation = LinearLayout.HORIZONTAL
+        chartTitleRow.gravity = Gravity.CENTER_VERTICAL
+        chartTitleRow.setPadding(16, 4, 16, 4)
+        chartTitleRow.visibility = View.GONE
+
         chartTitle = TextView(this)
         chartTitle.text = "$currentSymbol · $currentTfLabel"
-        chartTitle.setPadding(24, 8, 24, 8)
         chartTitle.textSize = 15f
         chartTitle.setTextColor(Prefs.textDim(this))
         chartTitle.gravity = Gravity.CENTER
-        chartTitle.visibility = View.GONE
-        root.addView(chartTitle)
+        chartTitle.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        chartTitleRow.addView(chartTitle)
+
+        chartCopyBtn = Button(this)
+        chartCopyBtn.text = "📋"
+        chartCopyBtn.textSize = 16f
+        chartCopyBtn.isAllCaps = false
+        chartCopyBtn.setTextColor(Prefs.text(this))
+        chartCopyBtn.background = pressedDrawable(Prefs.buttonOff(this), Prefs.buttonPressed(this))
+        chartCopyBtn.setPadding(20, 8, 20, 8)
+        chartCopyBtn.setOnClickListener { copyChartToClipboard() }
+        chartTitleRow.addView(chartCopyBtn)
+
+        chartShareBtn = Button(this)
+        chartShareBtn.text = "📤"
+        chartShareBtn.textSize = 16f
+        chartShareBtn.isAllCaps = false
+        chartShareBtn.setTextColor(Prefs.text(this))
+        chartShareBtn.background = pressedDrawable(Prefs.buttonOff(this), Prefs.buttonPressed(this))
+        chartShareBtn.setPadding(20, 8, 20, 8)
+        chartShareBtn.setOnClickListener { shareChart() }
+        chartTitleRow.addView(chartShareBtn)
+
+        root.addView(chartTitleRow)
 
         listContainer = LinearLayout(this)
         listContainer.orientation = LinearLayout.VERTICAL
@@ -809,6 +849,7 @@ class MainActivity : Activity() {
             obInfo?.bidWallPrice ?: 0.0, obInfo?.bidWallUsd ?: 0.0,
             obInfo?.askWallPrice ?: 0.0, obInfo?.askWallUsd ?: 0.0
         )
+        chartView.setLiqClusters(computeLiqClusters(currentSymbol))
     }
 
     private fun updateTfButtons() {
@@ -824,19 +865,58 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun copyChartToClipboard() {
+        try {
+            val bmp = chartView.exportBitmap() ?: return
+            val file = File(cacheDir, "charts")
+            if (!file.exists()) file.mkdirs()
+            val png = File(file, "chart_${System.currentTimeMillis()}.png")
+            FileOutputStream(png).use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.fileprovider", png)
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            cm.setPrimaryClip(android.content.ClipData.newUri(contentResolver, "chart", uri))
+            Toast.makeText(this, "Скопировано (вставь в чат)", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Ошибка: ${e.message?.take(60)}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun shareChart() {
+        try {
+            val bmp = chartView.exportBitmap() ?: return
+            val file = File(cacheDir, "charts")
+            if (!file.exists()) file.mkdirs()
+            val png = File(file, "chart_${System.currentTimeMillis()}.png")
+            FileOutputStream(png).use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.fileprovider", png)
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "image/png"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(intent, "Поделиться графиком"))
+        } catch (e: Exception) {
+            Toast.makeText(this, "Ошибка: ${e.message?.take(60)}", Toast.LENGTH_LONG).show()
+        }
+    }
+
     private fun applyOrientation() {
         if (isChartMode) {
             listFrame.visibility = View.GONE
             chartView.visibility = View.VISIBLE
-            chartTitle.visibility = View.VISIBLE
+            chartTitleRow.visibility = View.VISIBLE
             tfRow.visibility = View.VISIBLE
+            chartCopyBtn.visibility = View.VISIBLE
+            chartShareBtn.visibility = View.VISIBLE
             backButton.visibility = View.VISIBLE
             refreshButton.visibility = View.GONE
             portfolioButton.visibility = View.GONE
             balanceLabel.visibility = View.GONE
         } else {
             chartView.visibility = View.GONE
-            chartTitle.visibility = View.GONE
+            chartTitleRow.visibility = View.GONE
+            chartCopyBtn.visibility = View.GONE
+            chartShareBtn.visibility = View.GONE
             tfRow.visibility = View.GONE
             backButton.visibility = View.GONE
             refreshButton.visibility = View.VISIBLE
@@ -1267,6 +1347,7 @@ class MainActivity : Activity() {
                             obInfo.askWallPrice, obInfo.askWallUsd
                         )
                     }
+                    chartView.setLiqClusters(computeLiqClusters(currentSymbol))
                 }
             }
         }
@@ -1289,7 +1370,7 @@ class MainActivity : Activity() {
             synchronized(MarketState.liqLock) {
                 val buf = MarketState.liqBuffer.getOrPut(symbol) { ArrayList() }
                 buf.add(LiqEvent(time, usd, isLong, price))
-                val cutoff = System.currentTimeMillis() - 15 * 60 * 1000L
+                val cutoff = System.currentTimeMillis() - 24 * 60 * 60 * 1000L
                 buf.removeAll { it.time < cutoff }
             }
         }.also { it.connect() }
@@ -1430,6 +1511,61 @@ class MainActivity : Activity() {
     }
 
     private fun getCachedLiqStats(symbol: String): LiqStats? = MarketState.liqStatsCache[symbol]
+    private fun computeLiqClusters(symbol: String): List<LiqCluster> {
+        val events = synchronized(MarketState.liqLock) {
+            MarketState.liqBuffer[symbol]?.toList() ?: emptyList()
+        }
+        if (events.isEmpty()) {
+            return synchronized(MarketState.liqClustersLock) { MarketState.liqClusters[symbol] ?: emptyList() }
+        }
+        val cutoff = System.currentTimeMillis() - 24 * 60 * 60_000L
+        val recent = ArrayList<LiqEvent>()
+        for (e in events) if (e.time >= cutoff && e.price > 0.0) recent.add(e)
+        if (recent.isEmpty()) return emptyList()
+
+        var sumPrice = 0.0
+        for (e in recent) sumPrice += e.price
+        val avgPrice = sumPrice / recent.size
+        if (avgPrice <= 0) return emptyList()
+        val binSize = avgPrice * 0.001
+        if (binSize <= 0) return emptyList()
+
+        val bins = HashMap<Long, DoubleArray>()
+        for (e in recent) {
+            val idx = (e.price / binSize).toLong()
+            val arr = bins.getOrPut(idx) { doubleArrayOf(e.price, e.price, 0.0, 0.0, 0.0) }
+            if (e.price < arr[0]) arr[0] = e.price
+            if (e.price > arr[1]) arr[1] = e.price
+            arr[2] += e.usd
+            if (e.isLong) arr[3] += e.usd else arr[4] += e.usd
+        }
+
+        val sorted = bins.values.sortedBy { it[0] }
+        val merged = ArrayList<DoubleArray>()
+        for (arr in sorted) {
+            if (merged.isNotEmpty() && arr[0] <= merged.last()[1] * 1.0015) {
+                val m = merged.last()
+                if (arr[1] > m[1]) m[1] = arr[1]
+                m[2] += arr[2]
+                m[3] += arr[3]
+                m[4] += arr[4]
+            } else {
+                merged.add(doubleArrayOf(arr[0], arr[1], arr[2], arr[3], arr[4]))
+            }
+        }
+
+        val out = ArrayList<LiqCluster>()
+        for (arr in merged) {
+            if (arr[2] < 50_000.0) continue
+            out.add(LiqCluster(arr[0], arr[1], arr[2], arr[3] >= arr[4]))
+        }
+        out.sortByDescending { it.usd }
+        synchronized(MarketState.liqClustersLock) {
+            MarketState.liqClusters[symbol] = out
+        }
+        return out
+    }
+
     private fun updateCascadePeak(symbol: String, currentSum: Double) {
         val now = System.currentTimeMillis()
         val liqThreshold = Prefs.liqThreshold(this)
@@ -2778,6 +2914,7 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
                         obInfo?.bidWallPrice ?: 0.0, obInfo?.bidWallUsd ?: 0.0,
                         obInfo?.askWallPrice ?: 0.0, obInfo?.askWallUsd ?: 0.0
                     )
+                    chartView.setLiqClusters(computeLiqClusters(currentSymbol))
                 }
             } catch (_: Exception) {}
         }

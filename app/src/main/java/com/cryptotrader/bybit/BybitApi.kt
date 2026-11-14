@@ -77,7 +77,7 @@ object BybitApi {
 
     fun fetchLongShortRatio(symbol: String): Pair<Double, Double>? {
         return try {
-            val body = httpGet("https://api.bybit.com/v5/market/account-ratio?category=linear&symbol=$symbol&period=1h&limit=1")
+            val body = httpGet("https://api.bybit.com/v5/market/account-ratio?category=linear&symbol=$symbol&period=5min&limit=1")
             val json = JSONObject(body)
             val list = json.getJSONObject("result").getJSONArray("list")
             if (list.length() == 0) return null

@@ -17,6 +17,8 @@ object MarketState {
     val liveSpeeds = HashMap<String, SpeedReading>()
     val liveTradeSpeeds = HashMap<String, TradeSpeedReading>()
     val liveLock = Any()
+    val liqClusters = HashMap<String, List<LiqCluster>>()
+    val liqClustersLock = Any()
     val largeTrades = HashMap<String, MutableList<LargeTrade>>()
     val largeTradesLock = Any()
 
