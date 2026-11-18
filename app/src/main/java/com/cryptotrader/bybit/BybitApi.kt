@@ -173,10 +173,10 @@ object BybitApi {
      * История OI: последние [bars] закрытых 5-минутных баров.
      * Возвращает от старых к новым (стабильный рост = монотонное увеличение).
      */
-    fun fetchOiHistory(symbol: String, bars: Int = 9): List<Double>? {
+    fun fetchOiHistory(symbol: String, bars: Int = 9, interval: String = "5min"): List<Double>? {
         return try {
             val body = httpGet(
-                "https://api.bybit.com/v5/market/open-interest?category=linear&symbol=$symbol&intervalTime=5min&limit=$bars",
+                "https://api.bybit.com/v5/market/open-interest?category=linear&symbol=$symbol&intervalTime=$interval&limit=$bars",
                 5000, 6000
             )
             val json = JSONObject(body)
@@ -189,6 +189,22 @@ object BybitApi {
                 out.add(oi)
             }
             out
+        } catch (_: Exception) { null }
+    }
+
+    fun fetchFundingInfo(symbol: String): FundingInfo? {
+        return try {
+            val body = httpGet(
+                "https://api.bybit.com/v5/market/tickers?category=linear&symbol=$symbol",
+                5000, 6000
+            )
+            val json = JSONObject(body)
+            val list = json.getJSONObject("result").getJSONArray("list")
+            if (list.length() == 0) return null
+            val o = list.getJSONObject(0)
+            val rate = o.optString("fundingRate", "0").toDoubleOrNull() ?: return null
+            val nextTime = o.optString("nextFundingTime", "0").toLongOrNull() ?: 0L
+            FundingInfo(rate, nextTime)
         } catch (_: Exception) { null }
     }
 }

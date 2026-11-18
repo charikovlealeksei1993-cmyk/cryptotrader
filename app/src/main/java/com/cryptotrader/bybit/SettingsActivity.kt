@@ -138,6 +138,54 @@ class SettingsActivity : Activity() {
         root.addView(signalTfRow)
 
         // ===== Сканирование =====
+        // ===== Порог агрессивной дельты =====
+        val burstTitle = TextView(this)
+        burstTitle.text = "📊 Агрессивная дельта"
+        burstTitle.textSize = 20f
+        burstTitle.setTypeface(null, android.graphics.Typeface.BOLD)
+        burstTitle.setTextColor(Prefs.text(this))
+        burstTitle.setPadding(0, 0, 0, 8)
+        root.addView(burstTitle)
+
+        val burstLabel = TextView(this)
+        burstLabel.textSize = 16f
+        burstLabel.setTextColor(Prefs.text(this))
+        burstLabel.setPadding(0, 0, 0, 8)
+        root.addView(burstLabel)
+
+        val burstButtons = ArrayList<Pair<Double, Button>>()
+        val burstRow = LinearLayout(this)
+        burstRow.orientation = LinearLayout.HORIZONTAL
+        val burstRowLp = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        burstRowLp.setMargins(0, 0, 0, 4)
+        burstRow.layoutParams = burstRowLp
+
+        for (v in listOf(10_000.0, 25_000.0, 50_000.0, 100_000.0, 500_000.0)) {
+            val b = Button(this)
+            val k = (v / 1000).toInt()
+            b.text = "${k}K"
+            b.textSize = 13f
+            b.isAllCaps = false
+            val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            lp.setMargins(2, 0, 2, 0)
+            b.layoutParams = lp
+            b.setOnClickListener {
+                Prefs.setDeltaBurstThreshold(this, v)
+                updateBurstButtons(burstButtons, burstLabel)
+            }
+            burstRow.addView(b)
+            burstButtons.add(v to b)
+        }
+        root.addView(burstRow)
+
+        val burstHint = TextView(this)
+        burstHint.text = "Сделка считается «толчком», если её сумма превышает порог. Счётчик покажет, сколько раз покупатели/продавцы давили за час."
+        burstHint.textSize = 13f
+        burstHint.setTextColor(Prefs.textDim(this))
+        burstHint.setPadding(0, 4, 0, 20)
+        root.addView(burstHint)
         val scanTitle = TextView(this)
         scanTitle.text = "🎯 Сканирование"
         scanTitle.textSize = 20f
@@ -184,6 +232,76 @@ class SettingsActivity : Activity() {
         scanHint.setTextColor(Prefs.textDim(this))
         scanHint.setPadding(0, 4, 0, 20)
         root.addView(scanHint)
+
+        // ===== Окно накопления =====
+        val accTitle = TextView(this)
+        accTitle.text = "🟡 Накопление"
+        accTitle.textSize = 20f
+        accTitle.setTypeface(null, android.graphics.Typeface.BOLD)
+        accTitle.setTextColor(Prefs.text(this))
+        accTitle.setPadding(0, 24, 0, 12)
+        root.addView(accTitle)
+
+        val accLabel = TextView(this)
+        accLabel.textSize = 16f
+        accLabel.setTextColor(Prefs.text(this))
+        accLabel.setPadding(0, 0, 0, 8)
+        root.addView(accLabel)
+
+        val accSeek = SeekBar(this)
+        accSeek.max = 23 // (120 - 5) / 5 = 23 шага
+        accSeek.progress = ((Prefs.accMinutes(this) - 5) / 5).coerceIn(0, 23)
+        accSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
+                val v = 5 + progress * 5
+                accLabel.text = "Окно накопления: $v минут"
+            }
+            override fun onStartTrackingTouch(sb: SeekBar?) {}
+            override fun onStopTrackingTouch(sb: SeekBar?) {
+                val v = 5 + (sb?.progress ?: 0) * 5
+                Prefs.setAccMinutes(this@SettingsActivity, v)
+            }
+        })
+        accLabel.text = "Окно накопления: ${Prefs.accMinutes(this)} минут"
+        root.addView(accSeek)
+
+        val accHint = TextView(this)
+        accHint.text = "Сколько минут анализировать для поиска накопления. 45 мин — скальпинг. 120 мин — более точный сигнал."
+        accHint.textSize = 13f
+        accHint.setTextColor(Prefs.textDim(this))
+        accHint.setPadding(0, 4, 0, 20)
+        root.addView(accHint)
+
+        // ===== Окно макро-накопления (часы) =====
+        val accHoursLabel = TextView(this)
+        accHoursLabel.textSize = 16f
+        accHoursLabel.setTextColor(Prefs.text(this))
+        accHoursLabel.setPadding(0, 16, 0, 8)
+        accHoursLabel.text = "Макро-накопление: ${Prefs.accHours(this)} ч"
+        root.addView(accHoursLabel)
+
+        val accHoursSeek = SeekBar(this)
+        accHoursSeek.max = 119 // (120 - 1) = 119 шагов
+        accHoursSeek.progress = Prefs.accHours(this) - 1
+        accHoursSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
+                val v = progress + 1
+                accHoursLabel.text = "Макро-накопление: $v ч"
+            }
+            override fun onStartTrackingTouch(sb: SeekBar?) {}
+            override fun onStopTrackingTouch(sb: SeekBar?) {
+                val v = (sb?.progress ?: 0) + 1
+                Prefs.setAccHours(this@SettingsActivity, v)
+            }
+        })
+        root.addView(accHoursSeek)
+
+        val accHoursHint = TextView(this)
+        accHoursHint.text = "Анализ на M15-барах. 4 часа — стандарт, 24 часа — поиск глобального накопления."
+        accHoursHint.textSize = 13f
+        accHoursHint.setTextColor(Prefs.textDim(this))
+        accHoursHint.setPadding(0, 4, 0, 20)
+        root.addView(accHoursHint)
 
         // ===== Paper Trading: SL / TP / Timeout =====
         val paperTitle = TextView(this)
@@ -726,6 +844,7 @@ liqThresholdLabel.text = formatThreshold(Prefs.liqThreshold(this))
         timeoutButtons.forEach { (_, b) -> styleButton(b) }
 
         updateScanLimitButtons()
+        updateBurstButtons(burstButtons, burstLabel)
         updateSlButtons()
         updateTpButtons()
         updateTimeoutButtons()
@@ -743,6 +862,23 @@ liqThresholdLabel.text = formatThreshold(Prefs.liqThreshold(this))
         480 -> "8ч"
         1440 -> "24ч"
         else -> "${min}м"
+    }
+
+    private fun updateBurstButtons(
+        buttons: List<Pair<Double, Button>>,
+        label: TextView
+    ) {
+        val current = Prefs.deltaBurstThreshold(this)
+        label.text = "Порог толчка: ${(current / 1000).toInt()}K"
+        buttons.forEach { (v, b) ->
+            if (Math.abs(v - current) < 1.0) {
+                b.background = pressedDrawable(Color.rgb(60, 90, 140), Color.rgb(85, 120, 175))
+                b.setTextColor(Color.WHITE)
+            } else {
+                b.background = pressedDrawable(Prefs.buttonOff(this), Prefs.buttonPressed(this))
+                b.setTextColor(Prefs.textDim(this))
+            }
+        }
     }
 
     private fun updateScanLimitButtons() {

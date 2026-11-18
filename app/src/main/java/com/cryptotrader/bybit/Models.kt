@@ -73,7 +73,9 @@ data class AccumulationInfo(
     val oiChangePct: Double = 0.0,  // общий рост OI за 45 мин, %
     val oiBarsPositive: Int = 0,    // сколько баров из 9 были +
     val rangePct: Double = 0.0,     // диапазон цены за 45 мин, %
-    val deltaUsd: Double = 0.0      // buy - sell за 45 мин, USD
+    val deltaUsd: Double = 0.0,
+    val priceLow: Double = 0.0,
+    val priceHigh: Double = 0.0      // buy - sell за 45 мин, USD
 )
 
 data class ScanResult(
@@ -110,7 +112,15 @@ data class ScanResult(
     val realDeltaUsd: Double = 0.0,
     val flowStatus: String = "",
     val priceAt15mAgo: Double = 0.0,
-    val accumulation: AccumulationInfo? = null
+    val accumulation: AccumulationInfo? = null,
+    val accumulationLow: Double = 0.0,
+    val accumulationHigh: Double = 0.0,
+    val fundingRate: Double = 0.0,
+    val nextFundingTime: Long = 0L,
+    val cvd1h: Double = 0.0,
+    val burstsUp: Int = 0,
+    val burstsDown: Int = 0,
+    val macroAccumulation: AccumulationInfo? = null
 ) {
     val score: Int get() = signals.size
 }
@@ -185,4 +195,9 @@ data class LiqCluster(
     val priceHigh: Double,
     val usd: Double,
     val isLong: Boolean
+)
+
+data class FundingInfo(
+    val rate: Double,
+    val nextTime: Long
 )

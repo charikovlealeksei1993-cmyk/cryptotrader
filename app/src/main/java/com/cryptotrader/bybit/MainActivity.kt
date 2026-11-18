@@ -107,7 +107,7 @@ class MainActivity : Activity() {
         renderScheduled = false
         renderList()
     }
-    private fun requestRender(delayMs: Long = 500) {
+    private fun requestRender(delayMs: Long = 1500) {
         if (renderScheduled) return
         renderScheduled = true
         scanner.postDelayed(renderRunnable, delayMs)
@@ -850,6 +850,10 @@ class MainActivity : Activity() {
             obInfo?.askWallPrice ?: 0.0, obInfo?.askWallUsd ?: 0.0
         )
         chartView.setLiqClusters(computeLiqClusters(currentSymbol))
+                        val acc2 = scanResults.firstOrNull { it.symbol == currentSymbol }?.accumulation
+                        chartView.setAccumulationZone(acc2?.priceLow ?: 0.0, acc2?.priceHigh ?: 0.0)
+        val acc = scanResults.firstOrNull { it.symbol == currentSymbol }?.accumulation
+        chartView.setAccumulationZone(acc?.priceLow ?: 0.0, acc?.priceHigh ?: 0.0)
     }
 
     private fun updateTfButtons() {
@@ -898,6 +902,15 @@ class MainActivity : Activity() {
         } catch (e: Exception) {
             Toast.makeText(this, "Ошибка: ${e.message?.take(60)}", Toast.LENGTH_LONG).show()
         }
+    }
+
+    private fun formatTimeLeft(ms: Long): String {
+        if (ms <= 0) return "0м"
+        val totalMinutes = ms / 60_000L
+        val hours = totalMinutes / 60
+        val minutes = totalMinutes % 60
+        val warning = if (totalMinutes < 15) " ⚠️" else ""
+        return if (hours > 0) "${hours}ч ${minutes}м$warning" else "${minutes}м$warning"
     }
 
     private fun applyOrientation() {
@@ -1054,6 +1067,11 @@ class MainActivity : Activity() {
             sb.appendLine("Δ 1м: $deltaEmoji $deltaSign${"%.0f".format(r.deltaPct1m)}% ($realDeltaStr buy/sell) · $flowLabel " + dirForFlow(r.flowStatus))
         }
 
+        val cvdEmoji = if (r.cvd1h > 0) "🟢" else if (r.cvd1h < 0) "🔴" else "⚪"
+        val cvdSign = if (r.cvd1h >= 0) "+" else ""
+        val burstEmoji = if (r.burstsUp > r.burstsDown) "🟢" else if (r.burstsDown > r.burstsUp) "🔴" else "⚪"
+        sb.appendLine("📊 CVD 1ч: $cvdSign${UiUtils.formatMoney(r.cvd1h)} $cvdEmoji · Толчки: ${r.burstsUp}↑ / ${r.burstsDown}↓ $burstEmoji")
+
         val liq = getCachedLiqStats(r.symbol)
         if (liq != null && liq.total15m >= liqThreshold) {
             val who = if (liq.dominantIsLong) "🐂 лонги" else "🐻 шорты"
@@ -1114,6 +1132,16 @@ class MainActivity : Activity() {
                 else -> ""
             }
             sb.appendLine("📊 OI: ${UiUtils.formatMoney(r.openInterest)} (~${UiUtils.formatMoney(oiUsd)}) · $oiSign${"%.2f".format(r.openInterestChange)}%$trendIcon")
+        }
+
+        if (r.fundingRate != 0.0) {
+            val frPct = r.fundingRate * 100
+            val frSign = if (frPct >= 0) "+" else ""
+            val frPayer = if (frPct > 0) " (лонги платят)" else if (frPct < 0) " (шорты платят)" else ""
+            val frColor = if (frPct > 0.05) "🔴" else if (frPct < -0.05) "🟢" else "⚪"
+            val timeLeftMs = r.nextFundingTime - System.currentTimeMillis()
+            val timeLeftStr = if (r.nextFundingTime > 0) " · до выплаты: ${formatTimeLeft(timeLeftMs)}" else ""
+            sb.appendLine("📈 Ставка: $frSign${"%.3f".format(frPct)}%$frPayer$timeLeftStr $frColor")
         }
 
         if (r.longRatio > 0 || r.shortRatio > 0) {
@@ -1189,6 +1217,15 @@ class MainActivity : Activity() {
                 val accEmoji = when (acc.level) { "strong" -> "🔥"; "medium" -> "🟢"; else -> "🟡" }
                 val accDir = if (acc.type == "long") "лонг" else "шорт"
                 sb.appendLine("$accEmoji Накопление $accDir · OI +${"%.2f".format(acc.oiChangePct)}% (${acc.oiBarsPositive}/9) · Диапазон ${"%.2f".format(acc.rangePct)}% · Delta ${UiUtils.formatMoney(acc.deltaUsd)} " + dirForAcc(acc.type))
+            }
+        }
+
+        r.macroAccumulation?.let { acc ->
+            if (acc.level.isNotEmpty()) {
+                val accEmoji = when (acc.level) { "strong" -> "🔥"; "medium" -> "🟢"; else -> "🟡" }
+                val accDir = if (acc.type == "long") "лонг" else "шорт"
+                val barsTotal = Prefs.accHours(this) * 4
+                sb.appendLine("🏛 $accEmoji МАКРО-НАКОПЛЕНИЕ $accDir · OI +${"%.2f".format(acc.oiChangePct)}% (${acc.oiBarsPositive}/$barsTotal) · Диапазон ${"%.2f".format(acc.rangePct)}% · Delta ${UiUtils.formatMoney(acc.deltaUsd)}")
             }
         }
 
@@ -1348,6 +1385,10 @@ class MainActivity : Activity() {
                         )
                     }
                     chartView.setLiqClusters(computeLiqClusters(currentSymbol))
+                        val acc2 = scanResults.firstOrNull { it.symbol == currentSymbol }?.accumulation
+                        chartView.setAccumulationZone(acc2?.priceLow ?: 0.0, acc2?.priceHigh ?: 0.0)
+        val acc = scanResults.firstOrNull { it.symbol == currentSymbol }?.accumulation
+        chartView.setAccumulationZone(acc?.priceLow ?: 0.0, acc?.priceHigh ?: 0.0)
                 }
             }
         }
@@ -1488,8 +1529,6 @@ class MainActivity : Activity() {
             val newList = scanResults.toMutableList()
             newList[idx] = updated
             scanResults = newList
-
-            if (!isChartMode) requestRender()
             updateBalanceLabel()
         }
     }
@@ -1688,6 +1727,22 @@ class MainActivity : Activity() {
                                 val realTurn24 = turnoverMap[sym] ?: 0.0
                                 val ratio = BybitApi.fetchLongShortRatio(sym)
                                 val oiHist = BybitApi.fetchOiHistory(sym, 9)
+                                val fundingInfo = BybitApi.fetchFundingInfo(sym)
+                                val funding = fundingInfo?.rate
+
+                                var m15Candles: List<Candle>? = null
+                                var oi15Hist: List<Double>? = null
+                                var delta15Buckets: List<Double> = emptyList()
+                                val macroHours = Prefs.accHours(this)
+                                if (macroHours > 0) {
+                                    try {
+                                        val barsNeeded = ((macroHours * 60) / 15).coerceAtLeast(3)
+                                        m15Candles = BybitApi.fetchKlines(sym, "15", barsNeeded + 10).reversed()
+                                        oi15Hist = BybitApi.fetchOiHistory(sym, barsNeeded, "15min")
+                                        val all5Buckets = tradeDeltaAnalyzer.getDeltaBuckets(sym, (macroHours * 60) / 5)
+                                        delta15Buckets = all5Buckets.chunked(3).map { it.sum() }
+                                    } catch (_: Exception) {}
+                                }
                                 val oiPair = if (oiHist != null && oiHist.size >= 2) {
                                     val oiLatest = oiHist.last()
                                     val oiPrev = oiHist[oiHist.size - 2]
@@ -1716,7 +1771,11 @@ class MainActivity : Activity() {
                                     longRatioChange = longRatioChange,
                                     oiTrend = oiTrend,
                                     oiHistory = oiHist,
-                                    deltaBuckets = tradeDeltaAnalyzer.getDeltaBuckets(sym, 9)
+                                    deltaBuckets = tradeDeltaAnalyzer.getDeltaBuckets(sym, (Prefs.accMinutes(this) / 5).coerceAtLeast(3)),
+                                    m15Candles = m15Candles,
+                                    oi15Hist = oi15Hist,
+                                    delta15Buckets = delta15Buckets,
+                                    funding = fundingInfo?.rate, nextFundingTime = fundingInfo?.nextTime ?: 0L
                                 )
                                 if (res != null) results.add(res)
                             } catch (_: Exception) {}
@@ -1982,7 +2041,10 @@ class MainActivity : Activity() {
         longRatioChange: Double = 0.0,
         oiTrend: String = "stable",
         oiHistory: List<Double>? = null,
-        deltaBuckets: List<Double> = emptyList()
+        deltaBuckets: List<Double> = emptyList(),
+        m15Candles: List<Candle>? = null,
+        oi15Hist: List<Double>? = null,
+        delta15Buckets: List<Double> = emptyList(), funding: Double? = null, nextFundingTime: Long = 0L
     ): ScanResult? {
         if (candles.size < 60) return null
         val signals = ArrayList<Signal>()
@@ -2080,13 +2142,19 @@ class MainActivity : Activity() {
             SignalDetector.detectReversalSignal(candles, liq, liqThreshold)
         }
 
-        val sigResult = if (rawSig.strength == "strong") {
+        var sigResult = if (rawSig.strength == "strong") {
             val lastNotified = synchronized(MarketState.signalCooldown) { MarketState.signalCooldown[symbol] ?: 0L }
             if (System.currentTimeMillis() - lastNotified < SIGNAL_COOLDOWN_MS) {
                 rawSig.copy(strength = "weak")
             } else rawSig
         } else rawSig
 
+        // ФИЛЬТР L/S: Запрет входа против толпы
+        if (sigResult.type == "long" && longRatio > 0.68) {
+            sigResult = SignalResult("", 0L, "", sigResult.pattern)
+        } else if (sigResult.type == "short" && shortRatio > 0.68) {
+            sigResult = SignalResult("", 0L, "", sigResult.pattern)
+        }
         if (sigResult.type.isNotEmpty()) {
             synchronized(MarketState.signalHistoryLock) {
                 MarketState.signalHistory[symbol] = SymbolSignal(
@@ -2105,9 +2173,19 @@ class MainActivity : Activity() {
     SignalDetector.computePeakForecast(curPrice, sigResult.type == "short", events)
 } else PeakForecast.empty()
 val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.size >= 9) {
-    SignalDetector.detectAccumulation(candles, oiHistory, deltaBuckets)
+    SignalDetector.detectAccumulation(candles, oiHistory, deltaBuckets, Prefs.accMinutes(this))
 } else null
+        val macroAcc = if (m15Candles != null && m15Candles.isNotEmpty() && oi15Hist != null && oi15Hist.size >= 3 && delta15Buckets.size >= 3) {
+            SignalDetector.detectMacroAccumulation(m15Candles, oi15Hist, delta15Buckets, Prefs.accHours(this))
+        } else null
+
         val obInfo = synchronized(MarketState.obLock) { MarketState.obInfos[symbol] }
+
+        val cvd1h = tradeDeltaAnalyzer.getCvd(symbol, 60)
+        val burstThresh = Prefs.deltaBurstThreshold(this)
+        val burstsPair = tradeDeltaAnalyzer.getBursts(symbol, 60, burstThresh)
+        val burstsUp = burstsPair.first
+        val burstsDown = burstsPair.second
 
         return ScanResult(symbol, curPrice, change15m, turnover24hFromTicker, turn1h,
             longRatio, shortRatio, volRatio, turnover1m, signals,
@@ -2131,7 +2209,12 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
             realDeltaUsd = 0.0,
             flowStatus = flowStatus,
             priceAt15mAgo = price15,
-            accumulation = accumulation)
+            accumulation = accumulation,
+            macroAccumulation = macroAcc,
+            accumulationLow = accumulation?.priceLow ?: 0.0,
+            accumulationHigh = accumulation?.priceHigh ?: 0.0,
+            fundingRate = funding ?: 0.0, nextFundingTime = nextFundingTime,
+            cvd1h = cvd1h, burstsUp = burstsUp, burstsDown = burstsDown)
     }
 
     // ================== Render list ==================
@@ -2241,6 +2324,15 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
                 row.addView(makeSignalBadge("$accEmoji НАКОПЛЕНИЕ $accDir", accColor))
             }
         }
+
+        r.macroAccumulation?.let { acc ->
+            if (acc.level.isNotEmpty()) {
+                val accEmoji = when (acc.level) { "strong" -> "🔥"; "medium" -> "🟢"; else -> "🟡" }
+                val accDir = if (acc.type == "long") "В ЛОНГ" else "В ШОРТ"
+                val accColor = when (acc.level) { "strong" -> Color.rgb(80, 40, 200); "medium" -> Color.rgb(40, 100, 200); else -> Color.rgb(100, 80, 180) }
+                row.addView(makeSignalBadge("🏛 $accEmoji МАКРО $accDir", accColor))
+            }
+        }
         val patternSuffix = if (r.signalPattern.isNotEmpty()) " — ${r.signalPattern}" else ""
         if (r.signalType == "short" && r.signalStrength == "strong") {
             row.addView(makeSignalBadge("🟢 ВХОД В ШОРТ$patternSuffix", Color.rgb(30, 120, 60)))
@@ -2334,6 +2426,22 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
             ))
         }
 
+        val cvdEmoji = if (r.cvd1h > 0) "🟢" else if (r.cvd1h < 0) "🔴" else "⚪"
+        val cvdSign = if (r.cvd1h >= 0) "+" else ""
+        val cvdColor = when {
+            r.cvd1h > 0 -> Color.rgb(120, 200, 140)
+            r.cvd1h < 0 -> Color.rgb(220, 120, 120)
+            else -> Prefs.textDim(this)
+        }
+        val burstEmoji = if (r.burstsUp > r.burstsDown) "🟢" else if (r.burstsDown > r.burstsUp) "🔴" else "⚪"
+        row.addView(makeDirRow(
+            "📊 CVD 1ч: $cvdSign${UiUtils.formatMoney(r.cvd1h)} · Толчки: ${r.burstsUp}↑ / ${r.burstsDown}↓",
+            burstEmoji,
+            cvdColor,
+            16f,
+            padTop = 1
+        ))
+
         if (r.openInterest > 0) {
             val oiLine = TextView(this)
             val oiChangeStr = if (r.openInterestChange >= 0)
@@ -2356,6 +2464,25 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
             )
             oiLine.textSize = 18f
             row.addView(oiLine)
+        }
+
+        if (r.fundingRate != 0.0) {
+            val frPct = r.fundingRate * 100
+            val frSign = if (frPct >= 0) "+" else ""
+            val frPayer = if (frPct > 0) " (лонги платят)" else if (frPct < 0) " (шорты платят)" else ""
+            val frColor = if (frPct > 0.05) Color.rgb(220, 120, 120)
+                          else if (frPct < -0.05) Color.rgb(120, 200, 140)
+                          else Prefs.textDim(this)
+            val frEmoji = if (frPct > 0.05) "🔴" else if (frPct < -0.05) "🟢" else "⚪"
+
+            val frLine = TextView(this)
+            val timeLeftMs = r.nextFundingTime - System.currentTimeMillis()
+            val timeLeftStr = if (r.nextFundingTime > 0) " · до выплаты: ${formatTimeLeft(timeLeftMs)}" else ""
+            frLine.text = "📈 Ставка: $frSign${"%.3f".format(frPct)}%$frPayer$timeLeftStr $frEmoji"
+            frLine.setTextColor(frColor)
+            frLine.textSize = 17f
+            frLine.setPadding(0, 2, 0, 0)
+            row.addView(frLine)
         }
 
         val lsLine = TextView(this)
@@ -2915,6 +3042,10 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
                         obInfo?.askWallPrice ?: 0.0, obInfo?.askWallUsd ?: 0.0
                     )
                     chartView.setLiqClusters(computeLiqClusters(currentSymbol))
+                        val acc2 = scanResults.firstOrNull { it.symbol == currentSymbol }?.accumulation
+                        chartView.setAccumulationZone(acc2?.priceLow ?: 0.0, acc2?.priceHigh ?: 0.0)
+        val acc = scanResults.firstOrNull { it.symbol == currentSymbol }?.accumulation
+        chartView.setAccumulationZone(acc?.priceLow ?: 0.0, acc?.priceHigh ?: 0.0)
                 }
             } catch (_: Exception) {}
         }

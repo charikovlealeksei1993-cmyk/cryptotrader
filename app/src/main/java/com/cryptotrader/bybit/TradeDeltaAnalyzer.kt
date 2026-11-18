@@ -26,7 +26,7 @@ class TradeDeltaAnalyzer {
     private val _buckets = HashMap<String, TreeMap<Long, Bucket>>()
 
     private val BUCKET_MS = 5 * 60 * 1000L
-    private val BUCKET_KEEP_MS = 50 * 60 * 1000L
+    private val BUCKET_KEEP_MS = 65 * 60 * 1000L
 
     fun addTrade(symbol: String, time: Long, usd: Double, isBuy: Boolean) {
         // --- Сырой буфер для 1-мин дельты ---
@@ -91,6 +91,31 @@ class TradeDeltaAnalyzer {
             }
         }
         return out
+    }
+
+    /**
+     * Кумулятивная дельта за последние N минут (кратно 5).
+     * Сумма (buy - sell) по бакетам.
+     */
+    fun getCvd(symbol: String, minutes: Int = 60): Double {
+        val count = (minutes / 5).coerceAtLeast(1)
+        return getDeltaBuckets(symbol, count).sum()
+    }
+
+    /**
+     * Счётчик толчков: сколько бакетов за N минут превысили порог.
+     * Возвращает Pair(вверх, вниз).
+     */
+    fun getBursts(symbol: String, minutes: Int = 60, threshold: Double): Pair<Int, Int> {
+        val count = (minutes / 5).coerceAtLeast(1)
+        val buckets = getDeltaBuckets(symbol, count)
+        var up = 0
+        var down = 0
+        for (b in buckets) {
+            if (b >= threshold) up++
+            else if (b <= -threshold) down++
+        }
+        return up to down
     }
 
     fun clear() {

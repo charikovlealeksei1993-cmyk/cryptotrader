@@ -40,6 +40,8 @@ class ChartView(context: Context) : View(context) {
     private var askWallPrice: Double = 0.0
     private var askWallUsd: Double = 0.0
     private var liqClusters: List<LiqCluster> = emptyList()
+    private var accLow: Double = 0.0
+    private var accHigh: Double = 0.0
 
     private var yMin: Double = 0.0
     private var yMax: Double = 0.0
@@ -251,6 +253,13 @@ class ChartView(context: Context) : View(context) {
         invalidate()
     }
 
+    fun setAccumulationZone(low: Double, high: Double) {
+        accLow = low
+        accHigh = high
+        heavyBitmap = null
+        invalidate()
+    }
+
     fun setLiqClusters(clusters: List<LiqCluster>) {
         liqClusters = clusters
         recomputeYRange()
@@ -345,6 +354,24 @@ class ChartView(context: Context) : View(context) {
         canvas.save()
         canvas.clipRect(pL, candleTop, w - pR, candleTop + candleH)
 
+        // Отрисовка зоны накопления
+        if (accLow > 0.0 && accHigh > accLow) {
+            val yLow = candleTop + ((maxPAdj - accLow) / rng * candleH).toFloat()
+            val yHigh = candleTop + ((maxPAdj - accHigh) / rng * candleH).toFloat()
+            val zonePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.argb(40, 255, 255, 255) // Полупрозрачный белый
+                style = Paint.Style.FILL
+            }
+            val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.argb(120, 255, 255, 255)
+                strokeWidth = 1f
+                style = Paint.Style.STROKE
+            }
+            canvas.drawRect(pL, yHigh, w - pR, yLow, zonePaint)
+            canvas.drawLine(pL, yHigh, w - pR, yHigh, borderPaint)
+            canvas.drawLine(pL, yLow, w - pR, yLow, borderPaint)
+        }
+
         if (chartType == "line") {
             paint.color = upColor
             paint.strokeWidth = 3f
@@ -404,18 +431,40 @@ class ChartView(context: Context) : View(context) {
         }
         if (bidWallPrice > 0 && bidWallPrice in minPAdj..maxPAdj) {
             val yBid = candleTop + ((maxPAdj - bidWallPrice) / rng * candleH).toFloat()
+            val bidWidth = when {
+                bidWallUsd >= 500_000 -> 8f
+                bidWallUsd >= 200_000 -> 5f
+                bidWallUsd >= 50_000 -> 3f
+                else -> 1.5f
+            }
+            val bidColor = when {
+                bidWallUsd >= 500_000 -> Color.rgb(0, 255, 100)   // Неоновый зеленый
+                bidWallUsd >= 200_000 -> Color.rgb(60, 200, 100)  // Яркий
+                else -> Color.rgb(60, 120, 80)                    // Тусклый
+            }
             val bidPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.rgb(60, 200, 100)
-                strokeWidth = 4f
+                color = bidColor
+                strokeWidth = bidWidth
                 style = Paint.Style.STROKE
             }
             canvas.drawLine(pL, yBid, w - pR, yBid, bidPaint)
         }
         if (askWallPrice > 0 && askWallPrice in minPAdj..maxPAdj) {
             val yAsk = candleTop + ((maxPAdj - askWallPrice) / rng * candleH).toFloat()
+            val askWidth = when {
+                askWallUsd >= 500_000 -> 8f
+                askWallUsd >= 200_000 -> 5f
+                askWallUsd >= 50_000 -> 3f
+                else -> 1.5f
+            }
+            val askColor = when {
+                askWallUsd >= 500_000 -> Color.rgb(255, 0, 80)    // Неоновый красный
+                askWallUsd >= 200_000 -> Color.rgb(220, 80, 80)   // Яркий
+                else -> Color.rgb(120, 60, 60)                    // Тусклый
+            }
             val askPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.rgb(240, 100, 100)
-                strokeWidth = 4f
+                color = askColor
+                strokeWidth = askWidth
                 style = Paint.Style.STROKE
             }
             canvas.drawLine(pL, yAsk, w - pR, yAsk, askPaint)

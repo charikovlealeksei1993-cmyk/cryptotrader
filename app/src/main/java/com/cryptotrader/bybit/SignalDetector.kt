@@ -161,7 +161,7 @@ object SignalDetector {
         val avgVol20 = candles.subList(candles.size - 22, candles.size - 2)
             .map { it.volume }
             .average()
-        val volOk = avgVol20 > 0.0 && (c.volume / avgVol20) >= 1.5
+        val volOk = avgVol20 > 0.0 && (c.volume / avgVol20) >= 2.0
 
         val recent = candles.subList(candles.size - 20, candles.size)
         val rangeHigh = recent.maxOf { it.high }
@@ -248,23 +248,24 @@ object SignalDetector {
     fun detectAccumulation(
         m1Candles: List<Candle>,
         oiHistory: List<Double>,
-        deltaBuckets: List<Double>
+        deltaBuckets: List<Double>,
+        windowMinutes: Int = 45
     ): AccumulationInfo? {
-        if (m1Candles.size < 45) return null
-        if (oiHistory.size < 9) return null
-        if (deltaBuckets.size < 9) return null
+        val barsNeeded = (windowMinutes / 5).coerceAtLeast(3)
+        val totalM1Needed = barsNeeded * 5
 
-        // Проверка, что свечи действительно M1 (60 сек)
+        if (m1Candles.size < totalM1Needed) return null
+        if (oiHistory.size < barsNeeded) return null
+        if (deltaBuckets.size < barsNeeded) return null
+
         val tf = m1Candles[m1Candles.size - 1].time - m1Candles[m1Candles.size - 2].time
         if (tf !in 55_000..65_000) return null
 
-        // Склеиваем последние 45 M1 в 9 M5-баров
-        val start = m1Candles.size - 45
-        val m5 = ArrayList<Candle>(9)
-        for (i in 0 until 9) {
+        val start = m1Candles.size - totalM1Needed
+        val m5 = ArrayList<Candle>(barsNeeded)
+        for (i in 0 until barsNeeded) {
             val from = start + i * 5
             val to = from + 5
-            if (to > m1Candles.size) return null
             val chunk = m1Candles.subList(from, to)
             m5.add(Candle(
                 time = chunk.first().time,
@@ -276,34 +277,37 @@ object SignalDetector {
             ))
         }
 
-        // Диапазон цены за 45 минут
         val maxHigh = m5.maxOf { it.high }
         val minLow = m5.minOf { it.low }
         val lastClose = m5.last().close
         if (lastClose <= 0) return null
         val rangePct = (maxHigh - minLow) / lastClose * 100
 
-        // OI: общий рост и сколько баров росли
-        val oiStart = oiHistory[0]
-        val oiEnd = oiHistory.last()
+        val recentOi = oiHistory.takeLast(barsNeeded)
+        val oiStart = recentOi.first()
+        val oiEnd = recentOi.last()
         if (oiStart <= 0 || oiEnd <= 0) return null
         val oiChangePct = (oiEnd - oiStart) / oiStart * 100
         if (oiChangePct < 1.0) return null
 
         var barsPositive = 0
-        for (i in 1 until oiHistory.size) {
-            if (oiHistory[i] > oiHistory[i - 1]) barsPositive++
+        for (i in 1 until recentOi.size) {
+            if (recentOi[i] > recentOi[i - 1]) barsPositive++
         }
 
-        // Дельта за 45 минут
-        val deltaSum = deltaBuckets.sum()
+        val recentDelta = deltaBuckets.takeLast(barsNeeded)
+        val deltaSum = recentDelta.sum()
         val absDelta = abs(deltaSum)
 
-        // Определяем уровень
+        val mult = windowMinutes / 45.0
+        val reqBarsWeak = (barsNeeded * 0.5).toInt().coerceAtLeast(1)
+        val reqBarsMed = (barsNeeded * 0.7).toInt().coerceAtLeast(2)
+        val reqBarsStrong = (barsNeeded * 0.9).toInt().coerceAtLeast(3)
+
         val level = when {
-            oiChangePct >= 3.5 && barsPositive >= 8 && rangePct < 0.8 && absDelta > 300_000 -> "strong"
-            oiChangePct >= 2.0 && barsPositive >= 7 && rangePct < 1.0 && absDelta > 150_000 -> "medium"
-            oiChangePct >= 1.0 && barsPositive >= 5 && rangePct < 1.2 && absDelta > 50_000 -> "weak"
+            oiChangePct >= 3.5 * mult && barsPositive >= reqBarsStrong && rangePct < 0.8 && absDelta > 300_000 * mult -> "strong"
+            oiChangePct >= 2.0 * mult && barsPositive >= reqBarsMed && rangePct < 1.0 && absDelta > 150_000 * mult -> "medium"
+            oiChangePct >= 1.0 * mult && barsPositive >= reqBarsWeak && rangePct < 1.2 && absDelta > 50_000 * mult -> "weak"
             else -> return null
         }
 
@@ -314,7 +318,69 @@ object SignalDetector {
             oiChangePct = oiChangePct,
             oiBarsPositive = barsPositive,
             rangePct = rangePct,
-            deltaUsd = deltaSum
+            deltaUsd = deltaSum,
+            priceLow = minLow,
+            priceHigh = maxHigh
+        )
+    }
+
+    fun detectMacroAccumulation(
+        m15Candles: List<Candle>,
+        oiHistory: List<Double>,
+        deltaBuckets: List<Double>,
+        windowHours: Int = 4
+    ): AccumulationInfo? {
+        val barsNeeded = (windowHours * 60 / 15).coerceAtLeast(3)
+        if (m15Candles.size < barsNeeded) return null
+        if (oiHistory.size < barsNeeded) return null
+        if (deltaBuckets.size < barsNeeded) return null
+
+        val recentM15 = m15Candles.takeLast(barsNeeded)
+
+        val maxHigh = recentM15.maxOf { it.high }
+        val minLow = recentM15.minOf { it.low }
+        val lastClose = recentM15.last().close
+        if (lastClose <= 0) return null
+        val rangePct = (maxHigh - minLow) / lastClose * 100
+
+        val recentOi = oiHistory.takeLast(barsNeeded)
+        val oiStart = recentOi.first()
+        val oiEnd = recentOi.last()
+        if (oiStart <= 0 || oiEnd <= 0) return null
+        val oiChangePct = (oiEnd - oiStart) / oiStart * 100
+        if (oiChangePct < 1.0) return null
+
+        var barsPositive = 0
+        for (i in 1 until recentOi.size) {
+            if (recentOi[i] > recentOi[i - 1]) barsPositive++
+        }
+
+        val recentDelta = deltaBuckets.takeLast(barsNeeded)
+        val deltaSum = recentDelta.sum()
+        val absDelta = abs(deltaSum)
+
+        val mult = windowHours / 4.0
+        val reqBarsWeak = (barsNeeded * 0.5).toInt().coerceAtLeast(1)
+        val reqBarsMed = (barsNeeded * 0.7).toInt().coerceAtLeast(2)
+        val reqBarsStrong = (barsNeeded * 0.9).toInt().coerceAtLeast(3)
+
+        val level = when {
+            oiChangePct >= 3.5 * mult && barsPositive >= reqBarsStrong && rangePct < 2.0 && absDelta > 300_000 * mult -> "strong"
+            oiChangePct >= 2.0 * mult && barsPositive >= reqBarsMed && rangePct < 3.0 && absDelta > 150_000 * mult -> "medium"
+            oiChangePct >= 1.0 * mult && barsPositive >= reqBarsWeak && rangePct < 4.0 && absDelta > 50_000 * mult -> "weak"
+            else -> return null
+        }
+
+        val isLong = deltaSum > 0
+        return AccumulationInfo(
+            type = if (isLong) "long" else "short",
+            level = level,
+            oiChangePct = oiChangePct,
+            oiBarsPositive = barsPositive,
+            rangePct = rangePct,
+            deltaUsd = deltaSum,
+            priceLow = minLow,
+            priceHigh = maxHigh
         )
     }
 }

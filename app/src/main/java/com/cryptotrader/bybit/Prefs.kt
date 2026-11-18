@@ -235,4 +235,14 @@ object Prefs {
 
     fun setAutoEnterAtStart(c: Context, v: Boolean) =
         sp(c).edit().putBoolean("autoEnterAtStart", v).apply()
+
+    // ================== Накопления ==================
+    fun accMinutes(c: Context): Int = sp(c).getInt("accMinutes", 45)
+    fun setAccMinutes(c: Context, v: Int) = sp(c).edit().putInt("accMinutes", v.coerceIn(5, 120)).apply()
+
+    fun deltaBurstThreshold(c: Context): Double = sp(c).getFloat("deltaBurstThreshold", 50_000f).toDouble()
+    fun setDeltaBurstThreshold(c: Context, v: Double) = sp(c).edit().putFloat("deltaBurstThreshold", v.toFloat()).apply()
+
+    fun accHours(c: Context): Int = sp(c).getInt("accHours", 4)
+    fun setAccHours(c: Context, v: Int) = sp(c).edit().putInt("accHours", v.coerceIn(1, 120)).apply()
 }
