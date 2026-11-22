@@ -72,11 +72,11 @@ class TradeSocket(
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                scheduleReconnect()
+                if (ws === webSocket && !closedByUser) scheduleReconnect()
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                scheduleReconnect()
+                if (ws === webSocket && !closedByUser) scheduleReconnect()
             }
         })
     }
@@ -93,6 +93,7 @@ class TradeSocket(
             n == 5 -> 30L
             else -> 60L
         }
+        reconnectJob?.cancel(false)
         reconnectJob = scheduler.schedule({
             if (!closedByUser) connect()
         }, delay, TimeUnit.SECONDS)
