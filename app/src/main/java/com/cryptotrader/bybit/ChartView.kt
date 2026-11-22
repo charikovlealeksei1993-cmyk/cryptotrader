@@ -404,7 +404,8 @@ class ChartView(context: Context) : View(context) {
                 if (c.priceHigh < minPAdj || c.priceLow > maxPAdj) continue
                 val yHigh = candleTop + ((maxPAdj - c.priceHigh) / rng * candleH).toFloat()
                 val yLow = candleTop + ((maxPAdj - c.priceLow) / rng * candleH).toFloat()
-                val alpha = ((c.usd / 500_000.0).coerceIn(0.15, 0.6) * 255).toInt()
+                // Small liquidation clusters remain visible; 50K+ clusters stand out.
+                val alpha = ((c.usd / 150_000.0).coerceIn(0.12, 0.65) * 255).toInt()
                 val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = if (c.isLong) Color.argb(alpha, 255, 80, 80)
                             else Color.argb(alpha, 80, 255, 80)
@@ -414,7 +415,7 @@ class ChartView(context: Context) : View(context) {
                 val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = if (c.isLong) Color.rgb(255, 100, 100)
                             else Color.rgb(100, 255, 100)
-                    strokeWidth = 2f
+                    strokeWidth = if (c.usd >= 50_000.0) 3.5f else 1.5f
                     style = Paint.Style.STROKE
                 }
                 canvas.drawLine(pL, yHigh, w - pR, yHigh, borderPaint)
