@@ -116,8 +116,7 @@ class KeepAliveService : Service() {
                     }
 
                     val signal = SignalDetector.detectReversalSignal(candles, liq, threshold)
-                    if (signal.type.isNotEmpty() && signal.strength == "strong" &&
-                        Prefs.notifEnabled(this, "signal")) {
+                    if (signal.type.isNotEmpty() && signal.strength == "strong") {
                         notifyOnce("signal:$symbol:${signal.candleTime}", 24 * 60 * 60_000L,
                             "🎯 Сигнал $symbol",
                             "${if (signal.type == "long") "LONG" else "SHORT"} · ${signal.pattern}")
