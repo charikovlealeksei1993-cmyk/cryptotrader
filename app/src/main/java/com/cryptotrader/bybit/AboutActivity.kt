@@ -74,6 +74,17 @@ class AboutActivity : Activity() {
 
         root.addView(headerRow)
 
+        // Идентификатор выпуска позволяет отличить установленную сборку от старой.
+        addSection(
+            root,
+            "📱 Версия приложения",
+            "Версия: $versionName\n" +
+            "Номер сборки: 2\n" +
+            "Дата выпуска: 22.11.2026\n" +
+            "Идентификатор: FIX-20261122-01"
+        )
+
+
         val subtitle = TextView(this)
         subtitle.text = "Сканер рынка Bybit с поиском точек входа и виртуальным портфелем"
         subtitle.textSize = 14f
