@@ -116,6 +116,7 @@ class MainActivity : Activity() {
 
     private var liqSocket: LiquidationSocket? = null
     private var currentLiqSymbols: List<String> = emptyList()
+    @Volatile private var lastLiqZoneRefresh = 0L
 
 
     private val tradeDeltaAnalyzer = TradeDeltaAnalyzer()
@@ -1414,6 +1415,17 @@ class MainActivity : Activity() {
                 val cutoff = System.currentTimeMillis() - 24 * 60 * 60 * 1000L
                 buf.removeAll { it.time < cutoff }
             }
+            // Keep the liquidation overlay current without waiting for a candle refresh.
+            // Throttle redraws when the exchange sends bursts of liquidation events.
+            val now = System.currentTimeMillis()
+            if (isChartMode && symbol == currentSymbol && now - lastLiqZoneRefresh >= 1_000L) {
+                lastLiqZoneRefresh = now
+                chartView.post {
+                    if (!isDestroyed && isChartMode && symbol == currentSymbol) {
+                        chartView.setLiqClusters(computeLiqClusters(symbol))
+                    }
+                }
+            }
         }.also { it.connect() }
     }
 
@@ -1595,7 +1607,8 @@ class MainActivity : Activity() {
 
         val out = ArrayList<LiqCluster>()
         for (arr in merged) {
-            if (arr[2] < 50_000.0) continue
+            // Show smaller clusters; the trading signal threshold stays independent.
+            if (arr[2] < 5_000.0) continue
             out.add(LiqCluster(arr[0], arr[1], arr[2], arr[3] >= arr[4]))
         }
         out.sortByDescending { it.usd }
