@@ -59,11 +59,11 @@ class TickerSocket(
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                scheduleReconnect()
+                if (ws === webSocket && !closedByUser) scheduleReconnect()
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                scheduleReconnect()
+                if (ws === webSocket && !closedByUser) scheduleReconnect()
             }
         })
     }
@@ -75,6 +75,7 @@ class TickerSocket(
         val delay = when {
             n <= 1 -> 2L; n == 2 -> 4L; n == 3 -> 8L; n == 4 -> 16L; n == 5 -> 30L; else -> 60L
         }
+        reconnectJob?.cancel(false)
         reconnectJob = scheduler.schedule({ if (!closedByUser) connect() }, delay, TimeUnit.SECONDS)
     }
 
