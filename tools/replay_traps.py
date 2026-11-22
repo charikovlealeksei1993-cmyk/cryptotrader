@@ -52,7 +52,7 @@ def detect(history, row, threshold):
     return ""
 
 
-def replay(rows, threshold, horizon):
+def replay(rows, threshold, horizon, interval_ms):
     by_symbol = defaultdict(list)
     for row in rows:
         by_symbol[row["symbol"]].append(row)
@@ -68,13 +68,32 @@ def replay(rows, threshold, horizon):
         for i, row in enumerate(series):
             # The current CSV row is a closed candle. Mimic app's trailing
             # unclosed candle by using closed history through this row.
-            history = series[:i + 1]
+            history = series[max(0, i - 21):i + 1]
+            # Never join candles separated by missing recording intervals.
+            if len(history) < 22 or any(
+                history[j]["time"] - history[j - 1]["time"] != interval_ms
+                for j in range(1, len(history))
+            ):
+                continue
+            # The evidence must have been captured after the confirmation
+            # candle closed, but before the next candle closed.
+            captured = row.get("captured_at", 0)
+            if captured and not (row["time"] + interval_ms <= captured
+                                 < row["time"] + 2 * interval_ms):
+                continue
             direction = detect(history, row, threshold)
             if not direction:
                 continue
             if i + horizon >= len(series):
                 continue
-            entry = row["close"]
+            # A decision made after confirmation close cannot fill at that
+            # already-known closing price. Use next candle's open.
+            if i + 1 >= len(series) or any(
+                series[j]["time"] - series[j - 1]["time"] != interval_ms
+                for j in range(i + 1, i + horizon + 1)
+            ):
+                continue
+            entry = series[i + 1]["open"]
             exit_price = series[i + horizon]["close"]
             gross_pct = (exit_price / entry - 1) * 100
             if direction == "short":
@@ -90,9 +109,10 @@ def main():
     parser.add_argument("--output", type=Path, default=Path("trap_replay_results.csv"))
     parser.add_argument("--threshold", type=float, default=10000)
     parser.add_argument("--horizon", type=int, default=15, help="number of closed candles after signal")
+    parser.add_argument("--interval-minutes", type=int, default=1, help="candle interval in minutes")
     args = parser.parse_args()
-    if args.horizon < 1:
-        parser.error("--horizon must be positive")
+    if args.horizon < 1 or args.interval_minutes < 1:
+        parser.error("--horizon and --interval-minutes must be positive")
     with args.input.open(newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         required = set(FIELDS) | {"symbol", "time"}
@@ -110,7 +130,7 @@ def main():
             except (ValueError, TypeError):
                 continue  # No fabricated data for missing snapshots
             rows.append(row)
-    results = replay(rows, args.threshold, args.horizon)
+    results = replay(rows, args.threshold, args.horizon, args.interval_minutes * 60000)
     with args.output.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=["symbol", "time", "side", "entry", "exit", "gross_pct"])
         writer.writeheader()
