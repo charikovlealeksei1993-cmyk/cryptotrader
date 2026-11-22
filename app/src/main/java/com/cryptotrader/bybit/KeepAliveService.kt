@@ -24,11 +24,16 @@ class KeepAliveService : Service() {
     @Volatile private var running = false
     private var liquidationSocket: LiquidationSocket? = null
     private var monitoredSymbols: List<String> = emptyList()
-    private val alerted = HashMap<String, Long>()
+    private val status by lazy { getSharedPreferences("background_scanner_status", MODE_PRIVATE) }
+    private val alerts by lazy { getSharedPreferences("background_scanner_alerts", MODE_PRIVATE) }
+    private var checked = 0
+    private var failures = 0
+    private var lastError = ""
 
     override fun onCreate() {
         super.onCreate()
         createChannel()
+        status.edit().putBoolean("running", true).putString("state", "Запуск").apply()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -64,6 +69,11 @@ class KeepAliveService : Service() {
     }
 
     private fun scanSafely() {
+        checked = 0
+        failures = 0
+        lastError = ""
+        status.edit().putString("state", "Сканирование")
+            .putLong("cycle_start", System.currentTimeMillis()).apply()
         try {
             val limit = Prefs.scanLimit(this).coerceIn(1, 20)
             val top = BybitApi.getTickers()
@@ -72,7 +82,10 @@ class KeepAliveService : Service() {
                 .take(limit)
                 .map { it.first }
             val symbols = (top + Prefs.pinned(this)).distinct().take(25)
-            if (symbols.isEmpty()) return
+            if (symbols.isEmpty()) {
+                status.edit().putString("state", "Нет монет для сканирования").apply()
+                return
+            }
             ensureLiquidationSocket(symbols)
 
             val threshold = Prefs.liqThreshold(this)
@@ -81,6 +94,7 @@ class KeepAliveService : Service() {
                 try {
                     val candles = BybitApi.fetchKlines(symbol, Prefs.signalTf(this), 90).reversed()
                     if (candles.size < 22) continue
+                    checked++
                     val recent = candles[candles.size - 2]
                     val averageVolume = candles.subList(candles.size - 22, candles.size - 2)
                         .map { it.volume }.average()
@@ -113,10 +127,23 @@ class KeepAliveService : Service() {
                         synchronized(MarketState.obLock) { MarketState.obInfos[symbol] = info }
                     }
                 } catch (e: Exception) {
+                    failures++
+                    lastError = e.message ?: e.javaClass.simpleName
                     Log.w("CryptoBackground", "Failed to scan $symbol", e)
                 }
             }
+            status.edit()
+                .putInt("checked", checked)
+                .putInt("failures", failures)
+                .putLong("last_success", if (checked > 0) System.currentTimeMillis() else status.getLong("last_success", 0L))
+                .putString("state", if (checked > 0) "Работает" else "Нет свежих данных")
+                .putString("error", lastError)
+                .putBoolean("socket_connected", liquidationSocket?.isConnected == true)
+                .apply()
         } catch (e: Exception) {
+            status.edit().putString("state", "Ошибка сканирования")
+                .putString("error", e.message ?: e.javaClass.simpleName)
+                .putBoolean("socket_connected", liquidationSocket?.isConnected == true).apply()
             Log.w("CryptoBackground", "Scan cycle failed; retrying", e)
         }
     }
@@ -157,8 +184,8 @@ class KeepAliveService : Service() {
 
     private fun notifyOnce(key: String, cooldownMs: Long, title: String, body: String) {
         val now = System.currentTimeMillis()
-        if (now - (alerted[key] ?: 0L) < cooldownMs) return
-        alerted[key] = now
+        if (now - alerts.getLong(key, 0L) < cooldownMs) return
+        alerts.edit().putLong(key, now).apply()
         val channel = NotificationHelper.CHANNEL_ID
         NotificationHelper.createNotificationChannel(this)
         val intent = PendingIntent.getActivity(
@@ -188,6 +215,8 @@ class KeepAliveService : Service() {
 
     override fun onDestroy() {
         running = false
+        status.edit().putBoolean("running", false).putString("state", "Остановлен")
+            .putBoolean("socket_connected", false).apply()
         worker.shutdownNow()
         liquidationSocket?.close()
         liquidationSocket = null
