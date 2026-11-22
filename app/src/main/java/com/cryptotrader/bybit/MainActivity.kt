@@ -1607,8 +1607,9 @@ class MainActivity : Activity() {
 
         val out = ArrayList<LiqCluster>()
         for (arr in merged) {
-            // Show smaller clusters; the trading signal threshold stays independent.
-            if (arr[2] < 5_000.0) continue
+            // Display every real liquidation price group, regardless of its USD size.
+            // The configured liquidation threshold still applies to alerts/signals only.
+            if (arr[2] <= 0.0) continue
             out.add(LiqCluster(arr[0], arr[1], arr[2], arr[3] >= arr[4]))
         }
         out.sortByDescending { it.usd }
