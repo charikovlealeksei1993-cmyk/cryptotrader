@@ -93,7 +93,7 @@ class KeepAliveService : Service() {
                 if (Thread.currentThread().isInterrupted) return
                 try {
                     val candles = BybitApi.fetchKlines(symbol, Prefs.signalTf(this), 90).reversed()
-                    if (candles.size < 22) continue
+                    if (candles.size < 25) continue
                     checked++
                     val recent = candles[candles.size - 2]
                     val averageVolume = candles.subList(candles.size - 22, candles.size - 2)
@@ -116,7 +116,8 @@ class KeepAliveService : Service() {
                     }
 
                     val signal = SignalDetector.detectReversalSignal(candles, liq, threshold)
-                    if (signal.type.isNotEmpty() && signal.strength == "strong") {
+                    if (signal.type.isNotEmpty() && signal.strength == "strong" &&
+                        Prefs.notifEnabled(this, "signal")) {
                         notifyOnce("signal:$symbol:${signal.candleTime}", 24 * 60 * 60_000L,
                             "🎯 Сигнал $symbol",
                             "${if (signal.type == "long") "LONG" else "SHORT"} · ${signal.pattern}")
