@@ -34,7 +34,11 @@ class TradeSocket(
     @Volatile private var reconnectJob: ScheduledFuture<*>? = null
     private val attempts = AtomicInteger(0)
 
+    @Synchronized
     fun connect() {
+        if (closedByUser && ws != null) return
+        ws?.cancel()
+        ws = null
         closedByUser = false
         reconnectJob?.cancel(false)
         reconnectJob = null
@@ -77,6 +81,7 @@ class TradeSocket(
         })
     }
 
+    @Synchronized
     private fun scheduleReconnect() {
         if (closedByUser) return
         val n = attempts.incrementAndGet()
@@ -93,6 +98,7 @@ class TradeSocket(
         }, delay, TimeUnit.SECONDS)
     }
 
+    @Synchronized
     fun close() {
         closedByUser = true
         reconnectJob?.cancel(false)
