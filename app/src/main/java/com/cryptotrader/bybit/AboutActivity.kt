@@ -22,6 +22,33 @@ class AboutActivity : Activity() {
 
     private val TELEGRAM_URL = "https://t.me/lealeksei1993"
 
+    private lateinit var scannerStatus: TextView
+
+    override fun onResume() {
+        super.onResume()
+        if (::scannerStatus.isInitialized) refreshScannerStatus()
+    }
+
+    private fun refreshScannerStatus() {
+        val p = getSharedPreferences("background_scanner_status", MODE_PRIVATE)
+        val last = p.getLong("last_success", 0L)
+        val age = if (last > 0) System.currentTimeMillis() - last else Long.MAX_VALUE
+        val state = when {
+            !p.getBoolean("running", false) -> "Остановлен"
+            age > 5 * 60_000L -> "Нет свежих данных"
+            else -> p.getString("state", "Неизвестно") ?: "Неизвестно"
+        }
+        val lastText = if (last > 0) java.text.SimpleDateFormat("dd.MM.yyyy HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(last)) else "Ещё не было"
+        val socket = if (p.getBoolean("socket_connected", false) && age <= 5 * 60_000L) "Подключён при последней проверке" else "Не подтверждён"
+        val error = p.getString("error", "") ?: ""
+        scannerStatus.text = "Состояние: $state\n" +
+            "Последний успешный цикл: $lastText\n" +
+            "Проверено монет: ${p.getInt("checked", 0)}\n" +
+            "Ошибок по монетам: ${p.getInt("failures", 0)}\n" +
+            "WebSocket ликвидаций: $socket" +
+            if (error.isNotBlank()) "\nПоследняя ошибка: ${error.take(140)}" else ""
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -79,11 +106,19 @@ class AboutActivity : Activity() {
             root,
             "📱 Версия приложения",
             "Версия: $versionName\n" +
-            "Номер сборки: 3\n" +
+            "Номер сборки: 4\n" +
             "Дата выпуска: 22.11.2026\n" +
-            "Идентификатор: BG-20261122-02"
+            "Идентификатор: DIAG-20261122-03"
         )
 
+
+        addSection(root, "🩺 Диагностика фонового сканера", "Данные последней проверки")
+        scannerStatus = TextView(this)
+        scannerStatus.textSize = 15f
+        scannerStatus.setTextColor(Prefs.text(this))
+        scannerStatus.setPadding(0, 0, 0, 20)
+        root.addView(scannerStatus)
+        refreshScannerStatus()
 
         val subtitle = TextView(this)
         subtitle.text = "Сканер рынка Bybit с поиском точек входа и виртуальным портфелем"
