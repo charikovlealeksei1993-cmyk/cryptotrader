@@ -17,6 +17,8 @@ class LiquidationSocket(
     private val scheduler = BybitNetwork.scheduler
 
     @Volatile private var ws: WebSocket? = null
+    @Volatile var isConnected: Boolean = false
+        private set
     @Volatile private var closedByUser = false
     @Volatile private var reconnectJob: ScheduledFuture<*>? = null
     private val attempts = AtomicInteger(0)
@@ -26,6 +28,7 @@ class LiquidationSocket(
         if (closedByUser && ws != null) return
         ws?.cancel()
         ws = null
+        isConnected = false
         closedByUser = false
         reconnectJob?.cancel(false)
         reconnectJob = null
@@ -35,6 +38,7 @@ class LiquidationSocket(
             .build()
         ws = client.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                isConnected = true
                 attempts.set(0)
                 symbols.chunked(10).forEach { chunk ->
                     val args = chunk.joinToString(",") { "\"allLiquidation.$it\"" }
@@ -66,6 +70,7 @@ class LiquidationSocket(
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                if (ws === webSocket) isConnected = false
                 if (ws === webSocket && !closedByUser) scheduleReconnect()
             }
 
@@ -96,6 +101,7 @@ class LiquidationSocket(
     @Synchronized
     fun close() {
         closedByUser = true
+        isConnected = false
         reconnectJob?.cancel(false)
         reconnectJob = null
         try { ws?.close(1000, "bye") } catch (_: Exception) {}
