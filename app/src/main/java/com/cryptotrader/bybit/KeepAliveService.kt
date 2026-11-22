@@ -29,6 +29,7 @@ class KeepAliveService : Service() {
     private var checked = 0
     private var failures = 0
     private var lastError = ""
+    private var scanRound = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -81,7 +82,7 @@ class KeepAliveService : Service() {
                 .sortedByDescending { it.second }
                 .take(limit)
                 .map { it.first }
-            val symbols = (top + Prefs.pinned(this)).distinct().take(25)
+            val symbols = (Prefs.pinned(this).sorted() + top).distinct().take(25)
             if (symbols.isEmpty()) {
                 status.edit().putString("state", "Нет монет для сканирования").apply()
                 return
@@ -89,7 +90,14 @@ class KeepAliveService : Service() {
             ensureLiquidationSocket(symbols)
 
             val threshold = Prefs.liqThreshold(this)
-            for (symbol in symbols) {
+            // Rotate the non-pinned scan order so the same symbols are not always last.
+            val pinned = Prefs.pinned(this)
+            val priority = symbols.filter { it in pinned }
+            val others = symbols.filter { it !in pinned }
+            val offset = if (others.isEmpty()) 0 else scanRound % others.size
+            val scanOrder = priority + others.drop(offset) + others.take(offset)
+            scanRound++
+            for (symbol in scanOrder) {
                 if (Thread.currentThread().isInterrupted) return
                 try {
                     val candles = BybitApi.fetchKlines(symbol, Prefs.signalTf(this), 90).reversed()
@@ -118,14 +126,25 @@ class KeepAliveService : Service() {
                     // Capture independent evidence on every scan, not only when a trap fires.
                     val recentOi = BybitApi.fetchOiHistory(symbol, 3)
                     val tradeDelta = BybitApi.fetchAggressiveDelta(symbol)
-                    MarketSnapshotRecorder.append(this, symbol, recent, liq, recentOi, tradeDelta)
                     val trapCandidate = SignalDetector.detectReversalSignal(candles, liq, threshold)
                     val signal = SignalDetector.confirmTrap(trapCandidate, recentOi, tradeDelta)
-                    if (signal.type.isNotEmpty() && signal.strength == "strong") {
+                    // Never alert on a confirmation candle that is already superseded.
+                    // Candle timestamps are OPEN times; the signal is valid until the next
+                    // candle closes. Check immediately before publishing, after network calls.
+                    val tfMinutes = Prefs.signalTf(this).toLongOrNull()
+                    val intervalMs = tfMinutes?.takeIf { it > 0 && it <= 720 }
+                        ?.times(60_000L)
+                    val now = System.currentTimeMillis()
+                    val ageSinceClose = if (intervalMs != null) {
+                        now - (signal.candleTime + intervalMs)
+                    } else Long.MAX_VALUE
+                    if (signal.type.isNotEmpty() && signal.strength == "strong" &&
+                        intervalMs != null && ageSinceClose >= 0L && ageSinceClose < intervalMs) {
                         notifyOnce("signal:$symbol:${signal.candleTime}", 24 * 60 * 60_000L,
                             "🎯 Сигнал $symbol",
                             "${if (signal.type == "long") "LONG" else "SHORT"} · ${signal.pattern}")
                     }
+                    MarketSnapshotRecorder.append(this, symbol, recent, liq, recentOi, tradeDelta)
 
                     // Keep order book data available to the UI when it resumes.
                     BybitApi.fetchOrderbookInfo(symbol)?.let { info ->
