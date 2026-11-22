@@ -407,8 +407,8 @@ class ChartView(context: Context) : View(context) {
                 // Small liquidation clusters remain visible; 50K+ clusters stand out.
                 val alpha = ((c.usd / 150_000.0).coerceIn(0.12, 0.65) * 255).toInt()
                 val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = if (c.isLong) Color.argb(alpha, 255, 80, 80)
-                            else Color.argb(alpha, 80, 255, 80)
+                    color = if (c.isLong) Color.argb(alpha, 80, 255, 80)
+                            else Color.argb(alpha, 255, 80, 80)
                     style = Paint.Style.FILL
                 }
                 // A single-price liquidation has zero price-range height. Give it a
@@ -433,9 +433,10 @@ class ChartView(context: Context) : View(context) {
                     typeface = Typeface.DEFAULT_BOLD
                 }
                 val mark = if (c.isLong) "🐂" else "🐻"
-                if (c.usd >= 5_000.0) {
-                    canvas.drawText("$mark ${formatUsd(c.usd)}", pL + 4, topY + 32, labelPaint)
-                }
+                // Show the correct animal for every real liquidation, including small levels.
+                // Place the label within the price plot even near its top boundary.
+                val labelY = (topY + 28f).coerceIn(candleTop + 28f, candleTop + candleH - 4f)
+                canvas.drawText("$mark ${formatUsd(c.usd)}", pL + 4, labelY, labelPaint)
             }
         }
         if (bidWallPrice > 0 && bidWallPrice in minPAdj..maxPAdj) {
