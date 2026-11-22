@@ -115,7 +115,12 @@ class KeepAliveService : Service() {
                             "📈 Объём $symbol", "Объём свечи выше среднего в ${"%.1f".format(volumeRatio)} раза")
                     }
 
-                    val signal = SignalDetector.detectReversalSignal(candles, liq, threshold)
+                    val trapCandidate = SignalDetector.detectReversalSignal(candles, liq, threshold)
+                    val signal = if (trapCandidate.type.isNotEmpty()) {
+                        val recentOi = BybitApi.fetchOiHistory(symbol, 3)
+                        val tradeDelta = BybitApi.fetchAggressiveDelta(symbol)
+                        SignalDetector.confirmTrap(trapCandidate, recentOi, tradeDelta)
+                    } else trapCandidate
                     if (signal.type.isNotEmpty() && signal.strength == "strong") {
                         notifyOnce("signal:$symbol:${signal.candleTime}", 24 * 60 * 60_000L,
                             "🎯 Сигнал $symbol",
