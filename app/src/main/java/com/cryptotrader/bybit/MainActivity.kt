@@ -2121,40 +2121,15 @@ class MainActivity : Activity() {
                 "${"%+.2f".format(movePct)}% · ${UiUtils.formatMoney(turnover1m)} за мин"))
         }
 
-        if (signals.isEmpty() && !forceInclude) return null
-
         var turn1h = 0.0
         val from1h = max(0, lastIdx - 60)
         for (k in from1h until lastIdx) turn1h += candles[k].volume * candles[k].close
 
-        val avgVol20 = if (candles.size >= 21) {
-            candles.subList(candles.size - 21, candles.size - 1)
-                .map { it.volume }
-                .average()
-        } else 1.0
-        val newsLikeExplosion = avgVol20 > 0.0 &&
-            last.volume / avgVol20 >= 10.0 &&
-            abs(change15m) >= 5.0
+        // Shared confirmed-trap detector: no legacy candle-pattern, news or crowd filters.
+        // Keep the UI and background scanner on the same signal rules.
+        val sigResult = SignalDetector.detectReversalSignal(candles, liq, liqThreshold)
+        if (signals.isEmpty() && !forceInclude && sigResult.type.isEmpty()) return null
 
-        val rawSig = if (newsLikeExplosion) {
-            SignalResult("", 0L, "")
-        } else {
-            SignalDetector.detectReversalSignal(candles, liq, liqThreshold)
-        }
-
-        var sigResult = if (rawSig.strength == "strong") {
-            val lastNotified = synchronized(MarketState.signalCooldown) { MarketState.signalCooldown[symbol] ?: 0L }
-            if (System.currentTimeMillis() - lastNotified < SIGNAL_COOLDOWN_MS) {
-                rawSig.copy(strength = "weak")
-            } else rawSig
-        } else rawSig
-
-        // ФИЛЬТР L/S: Запрет входа против толпы
-        if (sigResult.type == "long" && longRatio > 0.68) {
-            sigResult = SignalResult("", 0L, "", sigResult.pattern)
-        } else if (sigResult.type == "short" && shortRatio > 0.68) {
-            sigResult = SignalResult("", 0L, "", sigResult.pattern)
-        }
         if (sigResult.type.isNotEmpty()) {
             synchronized(MarketState.signalHistoryLock) {
                 MarketState.signalHistory[symbol] = SymbolSignal(
