@@ -58,7 +58,13 @@ def replay(rows, threshold, horizon):
         by_symbol[row["symbol"]].append(row)
     results = []
     for symbol, series in by_symbol.items():
-        series.sort(key=lambda x: x["time"])
+        # Keep the first snapshot for each closed candle, preventing future
+        # scans from retroactively changing its evidence.
+        series.sort(key=lambda x: (x["time"], x.get("captured_at", 0)))
+        first_by_candle = {}
+        for item in series:
+            first_by_candle.setdefault(item["time"], item)
+        series = list(first_by_candle.values())
         for i, row in enumerate(series):
             # The current CSV row is a closed candle. Mimic app's trailing
             # unclosed candle by using closed history through this row.
@@ -96,7 +102,11 @@ def main():
         for raw in reader:
             try:
                 row = {key: float(raw[key]) for key in FIELDS}
-                row.update(symbol=raw["symbol"], time=int(raw["time"]))
+                row.update(symbol=raw["symbol"], time=int(raw["time"]),
+                           captured_at=int(raw.get("captured_at") or 0))
+                # Snapshots cannot predate the closed candle's start.
+                if row["captured_at"] and row["captured_at"] < row["time"]:
+                    continue
             except (ValueError, TypeError):
                 continue  # No fabricated data for missing snapshots
             rows.append(row)
