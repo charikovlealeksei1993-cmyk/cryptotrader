@@ -411,15 +411,21 @@ class ChartView(context: Context) : View(context) {
                             else Color.argb(alpha, 80, 255, 80)
                     style = Paint.Style.FILL
                 }
-                canvas.drawRect(pL, yHigh, w - pR, yLow, fillPaint)
+                // A single-price liquidation has zero price-range height. Give it a
+                // visible minimum thickness without changing its actual price level.
+                val centerY = (yHigh + yLow) / 2f
+                val halfHeight = max(2.5f, (yLow - yHigh) / 2f)
+                val topY = max(candleTop, centerY - halfHeight)
+                val bottomY = min(candleTop + candleH, centerY + halfHeight)
+                canvas.drawRect(pL, topY, w - pR, bottomY, fillPaint)
                 val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = if (c.isLong) Color.rgb(255, 100, 100)
                             else Color.rgb(100, 255, 100)
                     strokeWidth = if (c.usd >= 50_000.0) 3.5f else 1.5f
                     style = Paint.Style.STROKE
                 }
-                canvas.drawLine(pL, yHigh, w - pR, yHigh, borderPaint)
-                canvas.drawLine(pL, yLow, w - pR, yLow, borderPaint)
+                canvas.drawLine(pL, topY, w - pR, topY, borderPaint)
+                canvas.drawLine(pL, bottomY, w - pR, bottomY, borderPaint)
                 val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = if (c.isLong) Color.rgb(255, 150, 150)
                             else Color.rgb(150, 255, 150)
@@ -427,7 +433,9 @@ class ChartView(context: Context) : View(context) {
                     typeface = Typeface.DEFAULT_BOLD
                 }
                 val mark = if (c.isLong) "🐂" else "🐻"
-                canvas.drawText("$mark ${formatUsd(c.usd)}", pL + 4, yHigh + 32, labelPaint)
+                if (c.usd >= 5_000.0) {
+                    canvas.drawText("$mark ${formatUsd(c.usd)}", pL + 4, topY + 32, labelPaint)
+                }
             }
         }
         if (bidWallPrice > 0 && bidWallPrice in minPAdj..maxPAdj) {
