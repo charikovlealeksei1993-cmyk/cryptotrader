@@ -127,6 +127,35 @@ object BybitApi {
         } catch (_: Exception) { emptyList() }
     }
 
+
+    /**
+     * Signed aggressive trade flow from Bybit recent-trade.
+     * Buy is buyer-initiated; Sell is seller-initiated.
+     * Null means missing or insufficient evidence, never a zero delta.
+     */
+    fun fetchAggressiveDelta(symbol: String, limit: Int = 500): Double? {
+        return try {
+            val body = httpGet(
+                "https://api.bybit.com/v5/market/recent-trade?category=linear&symbol=$symbol&limit=$limit",
+                6000, 8000
+            )
+            val arr = JSONObject(body).getJSONObject("result").getJSONArray("list")
+            if (arr.length() < 20) return null
+            var buyUsd = 0.0
+            var sellUsd = 0.0
+            for (i in 0 until arr.length()) {
+                val trade = arr.getJSONObject(i)
+                val usd = trade.getString("price").toDouble() * trade.getString("size").toDouble()
+                when (trade.optString("side")) {
+                    "Buy" -> buyUsd += usd
+                    "Sell" -> sellUsd += usd
+                }
+            }
+            val total = buyUsd + sellUsd
+            if (total <= 0.0) null else (buyUsd - sellUsd) / total
+        } catch (_: Exception) { null }
+    }
+
     fun fetchOrderbookInfo(symbol: String): OrderbookInfo? {
         return try {
             val body = httpGet(
