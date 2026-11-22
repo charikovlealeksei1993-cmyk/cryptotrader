@@ -60,6 +60,39 @@ object SignalDetector {
         return SignalResult(type, confirm.time, "strong", pattern)
     }
 
+
+    /**
+     * Require independent positioning and order-flow evidence before publishing a trap.
+     * OI change is calculated from the latest two 5-minute samples.
+     * Delta is signed buyer-initiated minus seller-initiated trade notional,
+     * normalized by total notional in the recent-trade snapshot.
+     */
+    fun confirmTrap(
+        candidate: SignalResult,
+        oiHistory: List<Double>?,
+        aggressiveDeltaRatio: Double?
+    ): SignalResult {
+        if (candidate.type.isEmpty() || oiHistory == null ||
+            oiHistory.size < 2 || aggressiveDeltaRatio == null) {
+            return SignalResult("", 0L, "")
+        }
+        val previousOi = oiHistory[oiHistory.size - 2]
+        val currentOi = oiHistory.last()
+        if (previousOi <= 0.0 || currentOi <= 0.0) return SignalResult("", 0L, "")
+        val oiChangePct = (currentOi - previousOi) / previousOi * 100.0
+        // Rising OI indicates fresh positioning into the failed break.
+        // Opposite-side aggressive flow suggests absorption rather than mere exhaustion.
+        if (oiChangePct < 0.15) return SignalResult("", 0L, "")
+        val absorbed = when (candidate.type) {
+            "long" -> aggressiveDeltaRatio <= -0.10
+            "short" -> aggressiveDeltaRatio >= 0.10
+            else -> false
+        }
+        return if (absorbed) candidate.copy(
+            pattern = candidate.pattern + " · OI & trade-flow absorption"
+        ) else SignalResult("", 0L, "")
+    }
+
     // ================== Peak forecast ==================
 
     fun computePeakForecast(
