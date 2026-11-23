@@ -684,8 +684,18 @@ liqThresholdLabel.text = formatThreshold(Prefs.liqThreshold(this))
         liqToggle = lt; liqSoundBtn = ls
         val (st, ss) = notifRow("Скорость (ускорение)", "speed")
         speedToggle = st; speedSoundBtn = ss
-        val (vt, vs) = notifRow("Объём и оборот", "volume")
+        val (vt, vs) = notifRow("Аномальный объём", "volume")
         volumeToggle = vt; volumeSoundBtn = vs
+
+        val turnoverCheck = android.widget.CheckBox(this)
+        turnoverCheck.text = "💰 Оборот за минуту (от 200K USDT)"
+        turnoverCheck.textSize = 16f
+        turnoverCheck.setTextColor(Prefs.text(this))
+        turnoverCheck.isChecked = Prefs.notifEnabled(this, "turnover")
+        turnoverCheck.setOnCheckedChangeListener { _, enabled ->
+            Prefs.setNotifEnabled(this, "turnover", enabled)
+        }
+        root.addView(turnoverCheck)
 
         // ===== Notification shade: independent LONG / SHORT strength filters =====
         val signalNotificationTitle = TextView(this)
