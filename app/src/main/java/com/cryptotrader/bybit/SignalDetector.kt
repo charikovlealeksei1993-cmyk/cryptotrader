@@ -14,9 +14,13 @@ object SignalDetector {
         liqThreshold: Double,
         flowDeltaUsd: Double? = null,
         cvdTrendUsd: Double? = null,
-        turnoverAcceleration: Double? = null
+        turnoverAcceleration: Double? = null,
+        adaptiveVolumeRatio: Double? = null
     ): SignalResult {
         if (candles.size < 8) return SignalResult("", 0L, "")
+        val confirmation = candles[candles.size - 2]
+        if (confirmation.time + 60_000L > System.currentTimeMillis())
+            return SignalResult("", 0L, "")
         val p = candles[candles.size - 3] // pattern candle
         val c = candles[candles.size - 2] // confirmation candle
         val prev = candles[candles.size - 4]
@@ -72,6 +76,7 @@ object SignalDetector {
         val directionalCvd = if (type == "long") cvdTrendUsd else cvdTrendUsd?.let { -it }
         if (directionalCvd != null && directionalCvd > 0.0) score += 5
         if (turnoverAcceleration != null && turnoverAcceleration >= 2.0) score += 5
+        if (adaptiveVolumeRatio != null && adaptiveVolumeRatio >= 1.8) score += 5
         if (liq != null && liq.total15m >= liqThreshold &&
             ((type == "long" && liq.dominantIsLong) ||
              (type == "short" && !liq.dominantIsLong))) score += 20
