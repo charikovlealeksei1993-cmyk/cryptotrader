@@ -142,7 +142,7 @@ object NotificationHelper {
             val prevKey = synchronized(MarketState.notifiedCooldown) {
                 MarketState.notifiedSignalKey[r.symbol]
             }
-            if (prevKey == key) continue
+            if (prevKey == "$key" + "_" + r.signalType) continue
             val lastT = synchronized(MarketState.notifiedCooldown) {
                 MarketState.notifiedSignalTime[r.symbol] ?: 0L
             }
@@ -206,7 +206,7 @@ object NotificationHelper {
                 } catch (_: SecurityException) {}
                 val tier = when {
                     r.signalPattern.contains("/100") -> {
-                        val points = Regex("(\\\\d+)/100").find(r.signalPattern)
+                        val points = Regex("([0-9]+)/100").find(r.signalPattern)
                             ?.groupValues?.get(1)?.toIntOrNull() ?: 0
                         when {
                             points >= 85 -> "very_strong"
