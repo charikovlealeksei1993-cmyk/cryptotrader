@@ -1311,25 +1311,6 @@ class MainActivity : Activity() {
     // ================== OI / L-S / Trend ==================
 
 
-    private fun updateLongRatioHistory(symbol: String, longRatio: Double) {
-        synchronized(MarketState.longRatioLock) {
-            val buf = MarketState.longRatioHistory.getOrPut(symbol) { ArrayList() }
-            buf.add(System.currentTimeMillis() to longRatio)
-            val cutoff = System.currentTimeMillis() - 20 * 60 * 1000L
-            buf.removeAll { it.first < cutoff }
-        }
-    }
-
-    private fun computeLongRatioChange(symbol: String, current: Double): Double {
-        synchronized(MarketState.longRatioLock) {
-            val buf = MarketState.longRatioHistory[symbol] ?: return 0.0
-            val targetTime = System.currentTimeMillis() - 15 * 60 * 1000L
-            val old = buf.minByOrNull { abs(it.first - targetTime) } ?: return 0.0
-            if (old.first < System.currentTimeMillis() - 20 * 60 * 1000L) return 0.0
-            return (current - old.second) * 100
-        }
-    }
-
     private fun updateOiTrend(symbol: String, change: Double) {
         synchronized(MarketState.oiChangeLock) {
             val buf = MarketState.oiChangeHistory.getOrPut(symbol) { ArrayList() }
