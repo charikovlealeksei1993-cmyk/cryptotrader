@@ -870,7 +870,7 @@ class MainActivity : Activity() {
         val currentOiChange = scanResults.firstOrNull { it.symbol == currentSymbol }?.openInterestChange ?: 0.0
         chartView.setFutureLiqZones(
             if (Prefs.futureLiquidationsEnabled(this))
-                estimateFutureLiqZones(candles, currentOiChange)
+                estimateFutureLiqZones(currentSymbol, candles, currentOiChange)
             else emptyList()
         )
                         val acc2 = scanResults.firstOrNull { it.symbol == currentSymbol }?.accumulation
@@ -1584,49 +1584,102 @@ class MainActivity : Activity() {
     }
 
     private fun getCachedLiqStats(symbol: String): LiqStats? = MarketState.liqStatsCache[symbol]
-    // First-pass relative risk model. OI change alone cannot reveal entry prices or sides.
-    // Use recent candle turnover as a proxy for entry concentration; never label it as USD liquidations.
-    private fun estimateFutureLiqZones(candles: List<Candle>, oiChangePct: Double): List<FutureLiqZone> {
-        if (candles.size < 8 || !oiChangePct.isFinite() || oiChangePct <= 0.0) return emptyList()
-        val recent = candles.takeLast(32)
-        val currentPrice = recent.last().close
-        if (currentPrice <= 0.0) return emptyList()
-        val weights = recent.map { (it.volume * it.close).coerceAtLeast(0.0) }
-        val totalWeight = weights.sum()
-        if (totalWeight <= 0.0) return emptyList()
-        val candidates = ArrayList<FutureLiqZone>()
-        for (i in recent.indices) {
-            val candle = recent[i]
-            val entry = (candle.open + candle.close + candle.high + candle.low) / 4.0
-            if (entry <= 0.0) continue
-            val weight = weights[i] / totalWeight
-            // A heuristic directional split; taker volume is not a position-side ledger.
-            val longShare = if (candle.close >= candle.open) 0.6 else 0.4
-            for (leverage in listOf(10, 25, 50, 100)) {
-                val distance = 1.0 / leverage
-                val longPrice = entry * (1.0 - distance)
-                val shortPrice = entry * (1.0 + distance)
-                if (longPrice < currentPrice)
-                    candidates.add(FutureLiqZone(longPrice, "LONG", leverage, weight * longShare))
-                if (shortPrice > currentPrice)
-                    candidates.add(FutureLiqZone(shortPrice, "SHORT", leverage, weight * (1.0 - longShare)))
+    // Stateful, relative risk estimates: these are NOT observed liquidation orders.
+    private data class TrackedFutureZone(
+        var price: Double, val side: String, val leverage: Int,
+        var weight: Double, var updatedAt: Long
+    )
+    private val futureZoneLock = Any()
+    private val futureZoneState = HashMap<String, MutableList<TrackedFutureZone>>()
+    private val futureZoneLastCandle = HashMap<String, Long>()
+    private val futureZoneLastPrice = HashMap<String, Double>()
+
+    private fun estimateFutureLiqZones(
+        symbol: String, candles: List<Candle>, oiChangePct: Double
+    ): List<FutureLiqZone> = synchronized(futureZoneLock) {
+        if (candles.size < 8) return@synchronized emptyList()
+        val latest = candles.last()
+        val price = latest.close
+        if (!price.isFinite() || price <= 0.0) return@synchronized emptyList()
+        val now = System.currentTimeMillis()
+        val zones = futureZoneState.getOrPut(symbol) { ArrayList() }
+        val previousPrice = futureZoneLastPrice[symbol] ?: price
+        val lastProcessed = futureZoneLastCandle[symbol] ?: 0L
+        val newCandle = latest.time > lastProcessed
+
+        // A touched level loses most of its remaining estimated concentration.
+        for (zone in zones) {
+            val crossed = if (zone.side == "LONG") {
+                kotlin.math.min(previousPrice, price) <= zone.price
+            } else {
+                kotlin.math.max(previousPrice, price) >= zone.price
             }
+            if (crossed) zone.weight *= 0.15
+            // Ageing continues independently of chart refresh cadence.
+            val hours = ((now - zone.updatedAt).coerceAtLeast(0L) / 3_600_000.0)
+            zone.weight *= Math.pow(0.92, hours)
+            zone.updatedAt = now
         }
-        // Aggregate nearby prices; return at most three strongest bands on either side.
-        val bin = currentPrice * 0.002
-        return candidates.groupBy { it.side to kotlin.math.round(it.price / bin).toLong() }
-            .map { (key, group) ->
-                val total = group.sumOf { it.strength }
-                val price = group.sumOf { it.price * it.strength } / total
-                FutureLiqZone(price, key.first, group.maxByOrNull { it.strength }!!.leverage, total)
-            }
-            .groupBy { it.side }
-            .flatMap { (_, group) ->
-                val maxStrength = group.maxOf { it.strength }.coerceAtLeast(0.000001)
-                group.sortedByDescending { it.strength }.take(3).map {
-                    it.copy(strength = (it.strength / maxStrength).coerceIn(0.0, 1.0))
+        futureZoneLastPrice[symbol] = price
+
+        // Only add newly estimated exposure once per new candle.
+        // Positive OI change is a market-wide proxy, not proof of long/short entries.
+        if (newCandle && oiChangePct.isFinite() && oiChangePct > 0.0) {
+            val recent = candles.takeLast(24)
+            val total = recent.sumOf { (it.volume * it.close).coerceAtLeast(0.0) }
+            if (total > 0.0) {
+                val growth = (oiChangePct / 100.0).coerceIn(0.0, 0.1)
+                val bin = price * 0.002
+                for (c in recent.takeLast(8)) {
+                    val entry = (c.open + c.close + c.high + c.low) / 4.0
+                    if (entry <= 0.0) continue
+                    val fraction = (c.volume * c.close).coerceAtLeast(0.0) / total
+                    val longShare = if (c.close >= c.open) 0.6 else 0.4
+                    for (lev in listOf(10, 25, 50, 100)) {
+                        for (side in listOf("LONG", "SHORT")) {
+                            val level = entry * (1.0 + if (side == "LONG") -1.0 / lev else 1.0 / lev)
+                            if ((side == "LONG" && level >= price) ||
+                                (side == "SHORT" && level <= price)) continue
+                            val sideShare = if (side == "LONG") longShare else 1.0 - longShare
+                            val increment = growth * fraction * sideShare / 4.0
+                            if (increment <= 0.0) continue
+                            val existing = zones.firstOrNull {
+                                it.side == side && kotlin.math.abs(it.price - level) <= bin
+                            }
+                            if (existing != null) {
+                                existing.price = (existing.price * existing.weight + level * increment) /
+                                    (existing.weight + increment)
+                                existing.weight += increment
+                            } else {
+                                zones.add(TrackedFutureZone(level, side, lev, increment, now))
+                            }
+                        }
+                    }
                 }
             }
+        }
+        if (newCandle) futureZoneLastCandle[symbol] = latest.time
+
+        // Falling OI is consistent with positions closing: reduce estimated exposure.
+        if (newCandle && oiChangePct.isFinite() && oiChangePct < 0.0) {
+            val shrink = (1.0 + oiChangePct / 100.0).coerceIn(0.7, 1.0)
+            zones.forEach { it.weight *= shrink }
+        }
+        zones.removeAll { it.weight < 0.00000001 ||
+            (it.side == "LONG" && it.price >= price) ||
+            (it.side == "SHORT" && it.price <= price) }
+        // Bound state size and return up to three strongest estimates per side.
+        if (zones.size > 200) {
+            val keep = zones.sortedByDescending { it.weight }.take(200).toSet()
+            zones.retainAll(keep)
+        }
+        zones.groupBy { it.side }.flatMap { (_, sideZones) ->
+            val maxWeight = sideZones.maxOf { it.weight }.coerceAtLeast(1e-12)
+            sideZones.sortedByDescending { it.weight }.take(3).map {
+                FutureLiqZone(it.price, it.side, it.leverage,
+                    (it.weight / maxWeight).coerceIn(0.0, 1.0))
+            }
+        }
     }
 
     private fun computeLiqClusters(symbol: String): List<LiqCluster> {
