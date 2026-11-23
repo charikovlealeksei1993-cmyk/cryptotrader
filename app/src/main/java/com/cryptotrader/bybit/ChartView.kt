@@ -594,14 +594,36 @@ canvas.save()
             }
             canvas.drawPath(path, cvdPaint)
             canvas.restore()
-            textPaint.color = labelColor
-            canvas.drawText("Δ% / CVD", pL + 4, lsTop + 14f, textPaint)
-            textPaint.color = upColor
-            canvas.drawText("+100%", w - pR + 5f, lsTop + 10f, textPaint)
-            textPaint.color = labelColor
-            canvas.drawText("0", w - pR + 5f, mid + 4f, textPaint)
-            textPaint.color = downColor
-            canvas.drawText("-100%", w - pR + 5f, panelBottom - 2f, textPaint)
+            // Percent bars have a fixed -100..+100% scale. CVD is an
+            // unbounded running USDT total and needs its own live scale.
+            val cvdLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.rgb(255, 190, 75)
+                textSize = textPaint.textSize * 0.85f
+                typeface = Typeface.DEFAULT_BOLD
+            }
+            val pctLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = labelColor
+                textSize = textPaint.textSize * 0.8f
+            }
+            canvas.drawText("Δ% (столбцы)", pL + 4, lsTop + 14f, pctLabelPaint)
+            val labelX = w - pR + 5f
+            canvas.drawText("+100%", labelX, lsTop + 10f, pctLabelPaint)
+            canvas.drawText("0%", labelX, mid + 4f, pctLabelPaint)
+            canvas.drawText("-100%", labelX, panelBottom - 2f, pctLabelPaint)
+
+            // A separate CVD scale is printed inside the panel on the left.
+            // Its labels match the same 12%-88% vertical range as the line.
+            val cvdTopY = lsTop + lsH * 0.12f
+            val cvdBottomY = lsTop + lsH * 0.88f
+            val cvdMidValue = (cvdMax + cvdMin) / 2.0
+            val cvdLast = visibleCvd.last()
+            canvas.drawText("CVD USDT", pL + 4f, lsTop + 29f, cvdLabelPaint)
+            canvas.drawText(formatUsd(cvdMax), pL + 4f, cvdTopY + 4f, cvdLabelPaint)
+            canvas.drawText(formatUsd(cvdMidValue), pL + 4f, (cvdTopY + cvdBottomY) / 2f + 4f, cvdLabelPaint)
+            canvas.drawText(formatUsd(cvdMin), pL + 4f, cvdBottomY + 4f, cvdLabelPaint)
+            val currentLabel = "CVD " + (if (cvdLast >= 0.0) "+" else "-") +
+                formatUsd(kotlin.math.abs(cvdLast))
+            canvas.drawText(currentLabel, pL + 4f, panelBottom + 19f, cvdLabelPaint)
         } else if (lsPoints.size >= 2) {
             val gridP = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = if (dark) Color.rgb(40, 40, 50) else Color.rgb(210, 210, 220)
