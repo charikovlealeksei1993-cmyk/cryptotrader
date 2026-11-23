@@ -697,6 +697,16 @@ liqThresholdLabel.text = formatThreshold(Prefs.liqThreshold(this))
         }
         root.addView(turnoverCheck)
 
+        val futureLiqCheck = android.widget.CheckBox(this)
+        futureLiqCheck.text = "🗺️ Будущие ликвидации на графике (оценка)"
+        futureLiqCheck.textSize = 16f
+        futureLiqCheck.setTextColor(Prefs.text(this))
+        futureLiqCheck.isChecked = Prefs.futureLiquidationsEnabled(this)
+        futureLiqCheck.setOnCheckedChangeListener { _, enabled ->
+            Prefs.setFutureLiquidationsEnabled(this, enabled)
+        }
+        root.addView(futureLiqCheck)
+
         // ===== Notification shade: independent LONG / SHORT strength filters =====
         val signalNotificationTitle = TextView(this)
         signalNotificationTitle.text = "📲 Уведомления LONG / SHORT в шторке"
