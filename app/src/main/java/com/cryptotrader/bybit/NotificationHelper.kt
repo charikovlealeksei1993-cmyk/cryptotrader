@@ -160,7 +160,19 @@ object NotificationHelper {
         }
     }
 
+    private fun signalTier(r: ScanResult): String {
+        val points = Regex("([0-9]+)/100").find(r.signalPattern)
+            ?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        return when {
+            points >= 85 -> "very_strong"
+            points >= 70 -> "strong"
+            points >= 50 -> "medium"
+            else -> "weak"
+        }
+    }
+
     fun sendSignalNotification(context: Context, r: ScanResult) {
+        if (!Prefs.signalNotificationEnabled(context, r.signalType, signalTier(r))) return
         try {
             val intent = Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
@@ -204,19 +216,7 @@ object NotificationHelper {
                     NotificationManagerCompat.from(context)
                         .notify(r.symbol.hashCode() + 2000, builder.build())
                 } catch (_: SecurityException) {}
-                val tier = when {
-                    r.signalPattern.contains("/100") -> {
-                        val points = Regex("([0-9]+)/100").find(r.signalPattern)
-                            ?.groupValues?.get(1)?.toIntOrNull() ?: 0
-                        when {
-                            points >= 85 -> "very_strong"
-                            points >= 70 -> "strong"
-                            points >= 50 -> "medium"
-                            else -> "weak"
-                        }
-                    }
-                    else -> "weak"
-                }
+                val tier = signalTier(r)
                 if (Prefs.signalSoundEnabled(context, tier)) {
                     playSoundFor(context, "signal_${r.signalType}_$tier")
                 }
