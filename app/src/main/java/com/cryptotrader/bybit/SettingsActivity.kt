@@ -707,6 +707,26 @@ liqThresholdLabel.text = formatThreshold(Prefs.liqThreshold(this))
         }
         root.addView(futureLiqCheck)
 
+        val clusterAlertCheck = android.widget.CheckBox(this)
+        clusterAlertCheck.text = "🔔 Приближение к будущему кластеру"
+        clusterAlertCheck.textSize = 16f
+        clusterAlertCheck.setTextColor(Prefs.text(this))
+        clusterAlertCheck.isChecked = Prefs.notifEnabled(this, "future_cluster")
+        clusterAlertCheck.setOnCheckedChangeListener { _, enabled ->
+            Prefs.setNotifEnabled(this, "future_cluster", enabled)
+        }
+        root.addView(clusterAlertCheck)
+
+        val cascadeAlertCheck = android.widget.CheckBox(this)
+        cascadeAlertCheck.text = "🔔 Начало и затухание каскада ликвидаций"
+        cascadeAlertCheck.textSize = 16f
+        cascadeAlertCheck.setTextColor(Prefs.text(this))
+        cascadeAlertCheck.isChecked = Prefs.notifEnabled(this, "cascade")
+        cascadeAlertCheck.setOnCheckedChangeListener { _, enabled ->
+            Prefs.setNotifEnabled(this, "cascade", enabled)
+        }
+        root.addView(cascadeAlertCheck)
+
         // ===== Notification shade: independent LONG / SHORT strength filters =====
         val signalNotificationTitle = TextView(this)
         signalNotificationTitle.text = "📲 Уведомления LONG / SHORT в шторке"
