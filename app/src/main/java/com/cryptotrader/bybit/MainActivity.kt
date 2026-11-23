@@ -1038,7 +1038,7 @@ class MainActivity : Activity() {
     private fun cardLevels(r: ScanResult): String {
         val open = PaperTrading.openTrades().firstOrNull { it.symbol == r.symbol }
         if (open != null) {
-            return "Позиция ${if (open.isLong) "LONG" else "SHORT"} · фактические уровни робота\\n" +
+            return "Позиция ${if (open.isLong) "LONG" else "SHORT"} · фактические уровни робота\n" +
                 "Вход: ${"%.4f".format(open.entryPrice)} · SL: ${"%.4f".format(open.slPrice)} · TP: ${"%.4f".format(open.tpPrice)}"
         }
         if (r.signalEntry <= 0.0 || (r.signalType != "long" && r.signalType != "short"))
@@ -1053,7 +1053,7 @@ class MainActivity : Activity() {
         if (target <= 0.0 || stop <= 0.0) return "Проверь настройки SL/TP"
         val moved = kotlin.math.abs(r.price - entry) / entry * 100.0 >= 0.5
         val prefix = if (moved) "⚠️ Цена ушла от исторического входа" else "План по настройкам робота (не ордер)"
-        return "$prefix\\nВход-ориентир: ${"%.4f".format(entry)} · SL: ${"%.4f".format(stop)} ($slPct%)\\n" +
+        return "$prefix\nВход-ориентир: ${"%.4f".format(entry)} · SL: ${"%.4f".format(stop)} ($slPct%)\n" +
             "TP: ${"%.4f".format(target)} ($tpPct%) · R:R 1:${"%.2f".format(tpPct / slPct)}"
     }
 
