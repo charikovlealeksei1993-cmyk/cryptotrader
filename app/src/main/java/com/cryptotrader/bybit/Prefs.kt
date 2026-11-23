@@ -137,6 +137,12 @@ object Prefs {
     fun setNotifEnabled(c: Context, type: String, v: Boolean) =
         sp(c).edit().putBoolean("notif_$type", v).apply()
 
+    fun signalNotificationEnabled(c: Context, direction: String, tier: String): Boolean =
+        sp(c).getBoolean("signal_notif_${direction}_${tier}", true)
+
+    fun setSignalNotificationEnabled(c: Context, direction: String, tier: String, enabled: Boolean) =
+        sp(c).edit().putBoolean("signal_notif_${direction}_${tier}", enabled).apply()
+
     fun signalSoundEnabled(c: Context, tier: String): Boolean =
         sp(c).getBoolean("signal_sound_$tier", true)
 
