@@ -2197,15 +2197,15 @@ class MainActivity : Activity() {
 
         // Shared confirmed-trap detector: no legacy candle-pattern, news or crowd filters.
         // Keep the UI and background scanner on the same signal rules.
-        val closedBuckets = tradeDeltaAnalyzer.getDeltaBuckets(symbol, 3)
-        val cvdDirection = if (closedBuckets.size >= 2)
-            closedBuckets.last() - closedBuckets[closedBuckets.size - 2] else null
-        val recentFlow = tradeDeltaAnalyzer.computeDelta(symbol)
+        // Flow must correspond to the CLOSED confirmation candle, not scan time.
+        val confirmationTime = candles[candles.size - 2].time
+        val closedFlow = if (Prefs.signalTf(this) == "1")
+            tradeDeltaAnalyzer.closedMinuteFlow(symbol, confirmationTime) else null
         val turnoverAcceleration = if (avgVol > 0.0) curVol / avgVol else null
         val trapCandidate = SignalDetector.detectReversalSignal(
             candles, liq, liqThreshold,
-            flowDeltaUsd = recentFlow,
-            cvdTrendUsd = cvdDirection,
+            flowDeltaUsd = closedFlow?.first,
+            cvdTrendUsd = closedFlow?.second,
             turnoverAcceleration = turnoverAcceleration
         )
         // Candle patterns are independent of liquidation and OI availability.
