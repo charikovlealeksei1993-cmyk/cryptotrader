@@ -39,7 +39,7 @@ class TradeDeltaAnalyzer {
         synchronized(_rawLock) {
             val buf = _rawBuffers.getOrPut(symbol) { ArrayList() }
             buf.add(TradeEntry(time, usd, isBuy))
-            val cutoff = System.currentTimeMillis() - 2 * 60 * 1000L
+            val cutoff = System.currentTimeMillis() - 7 * 60 * 1000L
             buf.removeAll { it.time < cutoff }
             while (buf.size > 5000) buf.removeAt(0)
         }
@@ -77,6 +77,20 @@ class TradeDeltaAnalyzer {
             if (t.isBuy) buyUsd += t.usd else sellUsd += t.usd
         }
         return buyUsd - sellUsd
+    }
+
+    /**
+     * Two consecutive 3-minute windows of aggressive buy/sell flow.
+     * Returns null unless trades were observed in BOTH windows.
+     */
+    fun cascadeFlowWindows(symbol: String, now: Long = System.currentTimeMillis()): Pair<Double, Double>? {
+        val trades = synchronized(_rawLock) { _rawBuffers[symbol]?.toList() ?: return null }
+        val recent = trades.filter { it.time >= now - 180_000L && it.time <= now }
+        val previous = trades.filter { it.time >= now - 360_000L && it.time < now - 180_000L }
+        if (recent.isEmpty() || previous.isEmpty()) return null
+        fun delta(items: List<TradeEntry>): Double =
+            items.sumOf { if (it.isBuy) it.usd else -it.usd }
+        return delta(previous) to delta(recent)
     }
 
     /**
