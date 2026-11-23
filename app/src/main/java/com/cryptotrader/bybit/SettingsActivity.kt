@@ -23,6 +23,7 @@ class SettingsActivity : Activity() {
     private val PICK_SOUND_LIQ = 2002
     private val PICK_SOUND_SPEED = 2003
     private val PICK_SOUND_VOLUME = 2004
+    private val signalSoundRequests = linkedMapOf(2005 to "weak", 2006 to "medium", 2007 to "strong", 2008 to "very_strong")
     private val signalSoundTiers = listOf("weak", "medium", "strong", "very_strong")
     private val signalSoundButtons = mutableMapOf<String, Button>()
 
@@ -686,7 +687,7 @@ liqThresholdLabel.text = formatThreshold(Prefs.liqThreshold(this))
         val (vt, vs) = notifRow("Объём и оборот", "volume")
         volumeToggle = vt; volumeSoundBtn = vs
 
-        // ===== Signal strength sound controls =====
+        // ===== Individual sounds for the four reversal signal tiers =====
         val signalSoundTitle = TextView(this)
         signalSoundTitle.text = "🔔 Звуки разворотных сигналов"
         signalSoundTitle.textSize = 20f
@@ -698,26 +699,52 @@ liqThresholdLabel.text = formatThreshold(Prefs.liqThreshold(this))
             "strong" to "Подтверждённые (70–84)",
             "very_strong" to "Сильные (85–100)"
         )) {
+            val label = TextView(this)
+            label.text = caption
+            label.textSize = 16f
+            label.setTextColor(Prefs.text(this))
+            root.addView(label)
+
+            val row = LinearLayout(this)
+            row.orientation = LinearLayout.HORIZONTAL
             val toggle = Button(this)
+            toggle.isAllCaps = false
+            toggle.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             fun updateToggle() {
-                toggle.text = "$caption: " +
-                    if (Prefs.signalSoundEnabled(this, tier)) "🔊 Вкл" else "🔇 Выкл"
+                toggle.text = if (Prefs.signalSoundEnabled(this, tier)) "🔊 Вкл" else "🔇 Выкл"
             }
             updateToggle()
             toggle.setOnClickListener {
                 Prefs.setSignalSoundEnabled(this, tier, !Prefs.signalSoundEnabled(this, tier))
                 updateToggle()
             }
-            root.addView(toggle)
+            row.addView(toggle)
 
-            val soundButton = Button(this)
-            soundButton.isAllCaps = false
-            soundButton.text = "🎵 Выбрать: ${Prefs.soundDisplayName(this, Prefs.soundUriFor(this, "signal_$tier"))}"
-            soundButton.setOnClickListener {
-                pickSound(2101 + signalSoundTiers.indexOf(tier), Prefs.soundUriFor(this, "signal_$tier"))
+            val choose = Button(this)
+            choose.isAllCaps = false
+            choose.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 2f)
+            choose.text = "🎵 Выбрать мелодию"
+            choose.setOnClickListener {
+                val requestCode = signalSoundRequests.entries.first { it.value == tier }.key
+                pickSound(requestCode, Prefs.soundUriFor(this, "signal_$tier"))
             }
-            signalSoundButtons[tier] = soundButton
-            root.addView(soundButton)
+            row.addView(choose)
+            root.addView(row)
+
+            val selected = TextView(this)
+            selected.text = "Мелодия: " + Prefs.soundDisplayName(this, Prefs.soundUriFor(this, "signal_$tier"))
+            selected.textSize = 13f
+            selected.setTextColor(Prefs.textDim(this))
+            root.addView(selected)
+
+            val reset = Button(this)
+            reset.text = "Сбросить мелодию"
+            reset.isAllCaps = false
+            reset.setOnClickListener {
+                Prefs.setSoundUriFor(this, "signal_$tier", null)
+                selected.text = "Мелодия: не выбран"
+            }
+            root.addView(reset)
         }
 
         // ===== Звук по умолчанию =====
@@ -1131,6 +1158,7 @@ liqThresholdLabel.text = formatThreshold(Prefs.liqThreshold(this))
             PICK_SOUND_LIQ -> Prefs.setSoundUriFor(this, "liquidation", uri)
             PICK_SOUND_SPEED -> Prefs.setSoundUriFor(this, "speed", uri)
             PICK_SOUND_VOLUME -> Prefs.setSoundUriFor(this, "volume", uri)
+            in signalSoundRequests.keys -> Prefs.setSoundUriFor(this, "signal_${signalSoundRequests[requestCode]}", uri)
             in 2101..2104 -> Prefs.setSoundUriFor(this, "signal_${signalSoundTiers[requestCode - 2101]}", uri)
         }
         playPreview(uri)
