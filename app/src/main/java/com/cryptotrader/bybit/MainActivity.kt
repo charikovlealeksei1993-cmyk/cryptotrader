@@ -124,6 +124,9 @@ class MainActivity : Activity() {
 
 
     private val tradeDeltaAnalyzer = TradeDeltaAnalyzer()
+    private val reversalScoreLock = Any()
+    private val frozenReversalScores = HashMap<String, Pair<Long, SignalResult>>()
+
     private var tradeDeltaSocket: TradeDeltaSocket? = null
     private var currentDeltaSymbols: List<String> = emptyList()
 
@@ -2212,10 +2215,21 @@ class MainActivity : Activity() {
             turnoverAcceleration = turnoverAcceleration,
             adaptiveVolumeRatio = if (Prefs.signalTf(this) == "1")
                 tradeDeltaAnalyzer.adaptiveMinuteVolumeRatio(symbol, confirmationTime)
-            else null
+            else null,
+            timeframeMinutes = tfMin
         )
         // Candle patterns are independent of liquidation and OI availability.
-        val sigResult = trapCandidate
+        val sigResult = synchronized(reversalScoreLock) {
+            val saved = frozenReversalScores[symbol]
+            when {
+                trapCandidate.type.isEmpty() -> trapCandidate
+                saved != null && saved.first == trapCandidate.candleTime -> saved.second
+                else -> {
+                    frozenReversalScores[symbol] = trapCandidate.candleTime to trapCandidate
+                    trapCandidate
+                }
+            }
+        }
         if (signals.isEmpty() && !forceInclude && sigResult.type.isEmpty()) return null
 
         if (sigResult.type.isNotEmpty()) {
