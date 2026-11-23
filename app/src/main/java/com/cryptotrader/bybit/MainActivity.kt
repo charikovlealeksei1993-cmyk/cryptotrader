@@ -1036,11 +1036,25 @@ class MainActivity : Activity() {
     }
 
     private fun cardLevels(r: ScanResult): String {
-        if (r.signalEntry <= 0.0 || r.signalStop <= 0.0 || r.signalTarget <= 0.0) return ""
-        val movePct = kotlin.math.abs(r.price - r.signalEntry) / r.signalEntry * 100.0
-        val outdated = movePct >= 0.5
-        val label = if (outdated) "⚠️ Исторический план, цена ушла от входа" else "Расчёт по закрытым свечам (не ордер)"
-        return "$label\\nВход-ориентир: ${"%.4f".format(r.signalEntry)} · Стоп: ${"%.4f".format(r.signalStop)}\\nЦель 2R: ${"%.4f".format(r.signalTarget)} · R:R 1:2"
+        val open = PaperTrading.openTrades().firstOrNull { it.symbol == r.symbol }
+        if (open != null) {
+            return "Позиция ${if (open.isLong) "LONG" else "SHORT"} · фактические уровни робота\\n" +
+                "Вход: ${"%.4f".format(open.entryPrice)} · SL: ${"%.4f".format(open.slPrice)} · TP: ${"%.4f".format(open.tpPrice)}"
+        }
+        if (r.signalEntry <= 0.0 || (r.signalType != "long" && r.signalType != "short"))
+            return ""
+        val slPct = Prefs.paperSlPercent(this)
+        val tpPct = Prefs.paperTpPercent(this)
+        if (slPct <= 0.0 || tpPct <= 0.0) return "Проверь настройки SL/TP"
+        val long = r.signalType == "long"
+        val entry = r.signalEntry
+        val stop = entry * (if (long) 1 - slPct / 100.0 else 1 + slPct / 100.0)
+        val target = entry * (if (long) 1 + tpPct / 100.0 else 1 - tpPct / 100.0)
+        if (target <= 0.0 || stop <= 0.0) return "Проверь настройки SL/TP"
+        val moved = kotlin.math.abs(r.price - entry) / entry * 100.0 >= 0.5
+        val prefix = if (moved) "⚠️ Цена ушла от исторического входа" else "План по настройкам робота (не ордер)"
+        return "$prefix\\nВход-ориентир: ${"%.4f".format(entry)} · SL: ${"%.4f".format(stop)} ($slPct%)\\n" +
+            "TP: ${"%.4f".format(target)} ($tpPct%) · R:R 1:${"%.2f".format(tpPct / slPct)}"
     }
 
     private fun buildCardText(r: ScanResult): String {
