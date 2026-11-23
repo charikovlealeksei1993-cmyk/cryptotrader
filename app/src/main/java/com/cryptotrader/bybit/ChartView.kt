@@ -419,16 +419,16 @@ class ChartView(context: Context) : View(context) {
                 val bottomY = min(candleTop + candleH, centerY + halfHeight)
                 canvas.drawRect(pL, topY, w - pR, bottomY, fillPaint)
                 val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = if (c.isLong) Color.rgb(255, 100, 100)
-                            else Color.rgb(100, 255, 100)
+                    color = if (c.isLong) Color.rgb(100, 255, 100)
+                            else Color.rgb(255, 100, 100)
                     strokeWidth = if (c.usd >= 50_000.0) 3.5f else 1.5f
                     style = Paint.Style.STROKE
                 }
                 canvas.drawLine(pL, topY, w - pR, topY, borderPaint)
                 canvas.drawLine(pL, bottomY, w - pR, bottomY, borderPaint)
                 val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = if (c.isLong) Color.rgb(255, 150, 150)
-                            else Color.rgb(150, 255, 150)
+                    color = if (c.isLong) Color.rgb(150, 255, 150)
+                            else Color.rgb(255, 150, 150)
                     textSize = 28f
                     typeface = Typeface.DEFAULT_BOLD
                 }
