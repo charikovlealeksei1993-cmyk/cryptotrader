@@ -137,6 +137,20 @@ class TradeDeltaAnalyzer {
         return delta(current) to (delta(current) - delta(previous))
     }
 
+    /** Activity speed based on trade notional per second in two CLOSED M1 windows. */
+    fun closedMinuteSpeedRatio(symbol: String, candleStartMs: Long): Double? {
+        val now = System.currentTimeMillis()
+        val end = candleStartMs + 60_000L
+        if (now < end || now - candleStartMs > 120_000L) return null
+        val trades = synchronized(_rawLock) { _rawBuffers[symbol]?.toList() ?: return null }
+        val prev = trades.filter { it.time >= candleStartMs - 60_000L && it.time < candleStartMs }
+        val cur = trades.filter { it.time >= candleStartMs && it.time < end }
+        if (prev.isEmpty() || cur.isEmpty()) return null
+        val prevUsd = prev.sumOf { it.usd }
+        val curUsd = cur.sumOf { it.usd }
+        return if (prevUsd > 0.0) curUsd / prevUsd else null
+    }
+
     fun clear() {
         synchronized(_rawLock) { _rawBuffers.clear() }
         synchronized(_bucketLock) { _buckets.clear() }
