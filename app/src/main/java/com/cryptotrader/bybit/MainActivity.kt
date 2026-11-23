@@ -1474,16 +1474,16 @@ class MainActivity : Activity() {
         cascadeWeakChecks[symbol] = consecutive
 
         val nextStage = when {
-            liqFading && confirmations == 2 && consecutive >= 3 -> 3
-            liqFading && confirmations >= 1 && consecutive >= 2 -> 2
-            weak -> 1
+            liqFading && confirmations == 2 && consecutive >= 3 -> 4
+            liqFading && confirmations >= 1 && consecutive >= 2 -> 3
+            weak -> 2
             else -> stage
         }
         if (nextStage > stage) {
             cascadeStages[symbol] = nextStage
             val message = when (nextStage) {
-                1 -> "📉 Каскад замедляется: ликвидации и рыночный импульс ослабевают"
-                2 -> "📉 Каскад, вероятно, затухает: несколько проверок подтвердили ослабление"
+                2 -> "📉 Каскад замедляется: ликвидации и рыночный импульс ослабевают"
+                3 -> "📉 Каскад, вероятно, затухает: несколько проверок подтвердили ослабление"
                 else -> "✅ Каскад, вероятно, завершён: ликвидации, цена и поток сделок ослабли"
             }
             NotificationHelper.sendRiskAlert(this, symbol, "cascade", message)
