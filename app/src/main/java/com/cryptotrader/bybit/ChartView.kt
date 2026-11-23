@@ -323,7 +323,8 @@ class ChartView(context: Context) : View(context) {
         val slice = candles.subList(start, end)
         if (slice.isEmpty()) return
 
-        val pL = 16f
+        // Reserve a left gutter for the independent CVD USDT scale.
+        val pL = if (volumeBars.isNotEmpty() && volumeBars.size == candles.size) 102f else 16f
         val pR = 110f
         val pT = 30f
         val pB = 40f
@@ -412,7 +413,7 @@ class ChartView(context: Context) : View(context) {
                 val yHigh = candleTop + ((maxPAdj - c.priceHigh) / rng * candleH).toFloat()
                 val yLow = candleTop + ((maxPAdj - c.priceLow) / rng * candleH).toFloat()
                 // Small liquidation clusters remain visible; 50K+ clusters stand out.
-                val alpha = ((c.usd / 150_000.0).coerceIn(0.12, 0.65) * 255).toInt()
+                val alpha = ((c.usd / 150_000.0).coerceIn(0.035, 0.14) * 255).toInt()
                 val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = if (c.isLong) Color.argb(alpha, 80, 255, 80)
                             else Color.argb(alpha, 255, 80, 80)
@@ -611,19 +612,23 @@ canvas.save()
             canvas.drawText("0%", labelX, mid + 4f, pctLabelPaint)
             canvas.drawText("-100%", labelX, panelBottom - 2f, pctLabelPaint)
 
-            // A separate CVD scale is printed inside the panel on the left.
-            // Its labels match the same 12%-88% vertical range as the line.
+            // Left gutter: real CVD values (USDT), independent of Δ%.
+            // The price and oscillator plots use the same pL and step,
+            // so their candles and histogram bars stay aligned.
             val cvdTopY = lsTop + lsH * 0.12f
             val cvdBottomY = lsTop + lsH * 0.88f
             val cvdMidValue = (cvdMax + cvdMin) / 2.0
             val cvdLast = visibleCvd.last()
-            canvas.drawText("CVD USDT", pL + 4f, lsTop + 29f, cvdLabelPaint)
-            canvas.drawText(formatUsd(cvdMax), pL + 4f, cvdTopY + 4f, cvdLabelPaint)
-            canvas.drawText(formatUsd(cvdMidValue), pL + 4f, (cvdTopY + cvdBottomY) / 2f + 4f, cvdLabelPaint)
-            canvas.drawText(formatUsd(cvdMin), pL + 4f, cvdBottomY + 4f, cvdLabelPaint)
-            val currentLabel = "CVD " + (if (cvdLast >= 0.0) "+" else "-") +
-                formatUsd(kotlin.math.abs(cvdLast))
-            canvas.drawText(currentLabel, pL + 4f, panelBottom + 19f, cvdLabelPaint)
+            fun signedCvd(value: Double): String =
+                (if (value > 0.0) "+" else if (value < 0.0) "-" else "") +
+                    formatUsd(kotlin.math.abs(value))
+            canvas.drawText("CVD USDT", 4f, lsTop + 12f, cvdLabelPaint)
+            canvas.drawText(signedCvd(cvdMax), 4f, cvdTopY + 4f, cvdLabelPaint)
+            canvas.drawText(signedCvd(cvdMidValue), 4f,
+                (cvdTopY + cvdBottomY) / 2f + 4f, cvdLabelPaint)
+            canvas.drawText(signedCvd(cvdMin), 4f, cvdBottomY + 4f, cvdLabelPaint)
+            canvas.drawText("CVD " + signedCvd(cvdLast), pL + 4f,
+                panelBottom + 19f, cvdLabelPaint)
         } else if (lsPoints.size >= 2) {
             val gridP = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = if (dark) Color.rgb(40, 40, 50) else Color.rgb(210, 210, 220)
