@@ -13,6 +13,8 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
+data class FutureLiqZone(val price: Double, val side: String, val leverage: Int, val strength: Double)
+
 data class SignalMarker(
     val time: Long,
     val type: String,
@@ -41,6 +43,7 @@ class ChartView(context: Context) : View(context) {
     private var askWallPrice: Double = 0.0
     private var askWallUsd: Double = 0.0
     private var liqClusters: List<LiqCluster> = emptyList()
+    private var futureLiqZones: List<FutureLiqZone> = emptyList()
     private var accLow: Double = 0.0
     private var accHigh: Double = 0.0
 
@@ -267,6 +270,12 @@ class ChartView(context: Context) : View(context) {
         invalidate()
     }
 
+    fun setFutureLiqZones(zones: List<FutureLiqZone>) {
+        futureLiqZones = zones
+        heavyBitmap = null
+        invalidate()
+    }
+
     fun setLiqClusters(clusters: List<LiqCluster>) {
         liqClusters = clusters
         recomputeYRange()
@@ -362,6 +371,27 @@ class ChartView(context: Context) : View(context) {
 
         canvas.save()
         canvas.clipRect(pL, candleTop, w - pR, candleTop + candleH)
+
+        // Estimated liquidation risk bands, not exchange-reported liquidation orders.
+        for (zone in futureLiqZones) {
+            if (zone.price < minPAdj || zone.price > maxPAdj) continue
+            val yy = candleTop + ((maxPAdj - zone.price) / rng * candleH).toFloat()
+            val shortSide = zone.side == "SHORT"
+            val base = if (shortSide) Color.rgb(239, 83, 80) else Color.rgb(38, 166, 154)
+            val alpha = (24 + zone.strength.coerceIn(0.0, 1.0) * 75).toInt()
+            val band = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.argb(alpha, Color.red(base), Color.green(base), Color.blue(base))
+                style = Paint.Style.FILL
+            }
+            canvas.drawRect(pL, yy - 7f, w - pR, yy + 7f, band)
+            val caption = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = base
+                textSize = 17f
+                typeface = Typeface.DEFAULT_BOLD
+                textAlign = Paint.Align.RIGHT
+            }
+            canvas.drawText("~${zone.side} ${zone.leverage}×", w - pR - 4f, yy - 10f, caption)
+        }
 
         // Отрисовка зоны накопления
         if (accLow > 0.0 && accHigh > accLow) {
