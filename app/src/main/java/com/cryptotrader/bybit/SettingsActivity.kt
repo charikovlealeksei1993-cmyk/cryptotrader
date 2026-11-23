@@ -687,6 +687,45 @@ liqThresholdLabel.text = formatThreshold(Prefs.liqThreshold(this))
         val (vt, vs) = notifRow("Объём и оборот", "volume")
         volumeToggle = vt; volumeSoundBtn = vs
 
+        // ===== Notification shade: independent LONG / SHORT strength filters =====
+        val signalNotificationTitle = TextView(this)
+        signalNotificationTitle.text = "📲 Уведомления LONG / SHORT в шторке"
+        signalNotificationTitle.textSize = 20f
+        signalNotificationTitle.setTextColor(Prefs.text(this))
+        signalNotificationTitle.setPadding(0, 24, 0, 8)
+        root.addView(signalNotificationTitle)
+
+        val signalNotificationHint = TextView(this)
+        signalNotificationHint.text = "Отметьте, какие сигналы присылать. Отключённые сигналы останутся на графике. Звуки настраиваются отдельно ниже."
+        signalNotificationHint.textSize = 13f
+        signalNotificationHint.setTextColor(Prefs.textDim(this))
+        root.addView(signalNotificationHint)
+
+        for ((direction, title) in listOf("long" to "🟢 LONG", "short" to "🔴 SHORT")) {
+            val heading = TextView(this)
+            heading.text = title
+            heading.textSize = 18f
+            heading.setTextColor(Prefs.text(this))
+            heading.setPadding(0, 16, 0, 4)
+            root.addView(heading)
+            for ((tier, caption) in listOf(
+                "weak" to "Слабый (0–49)",
+                "medium" to "Средний (50–69)",
+                "strong" to "Подтверждённый (70–84)",
+                "very_strong" to "Сильный (85–100)"
+            )) {
+                val check = android.widget.CheckBox(this)
+                check.text = caption
+                check.textSize = 15f
+                check.setTextColor(Prefs.text(this))
+                check.isChecked = Prefs.signalNotificationEnabled(this, direction, tier)
+                check.setOnCheckedChangeListener { _, enabled ->
+                    Prefs.setSignalNotificationEnabled(this, direction, tier, enabled)
+                }
+                root.addView(check)
+            }
+        }
+
         // ===== Individual sounds for the four reversal signal tiers =====
         val signalSoundTitle = TextView(this)
         signalSoundTitle.text = "🔔 Звуки разворотных сигналов"
