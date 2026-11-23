@@ -2198,11 +2198,8 @@ class MainActivity : Activity() {
         // Shared confirmed-trap detector: no legacy candle-pattern, news or crowd filters.
         // Keep the UI and background scanner on the same signal rules.
         val trapCandidate = SignalDetector.detectReversalSignal(candles, liq, liqThreshold)
-        val sigResult = if (trapCandidate.type.isNotEmpty()) {
-            val recentOi = BybitApi.fetchOiHistory(symbol, 3)
-            val tradeDelta = BybitApi.fetchAggressiveDelta(symbol)
-            SignalDetector.confirmTrap(trapCandidate, recentOi, tradeDelta)
-        } else trapCandidate
+        // Candle patterns are independent of liquidation and OI availability.
+        val sigResult = trapCandidate
         if (signals.isEmpty() && !forceInclude && sigResult.type.isEmpty()) return null
 
         if (sigResult.type.isNotEmpty()) {
