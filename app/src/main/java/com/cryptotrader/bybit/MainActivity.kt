@@ -1035,6 +1035,14 @@ class MainActivity : Activity() {
             (r.signalType == "short" && open.isLong)
     }
 
+    private fun cardLevels(r: ScanResult): String {
+        if (r.signalEntry <= 0.0 || r.signalStop <= 0.0 || r.signalTarget <= 0.0) return ""
+        val movePct = kotlin.math.abs(r.price - r.signalEntry) / r.signalEntry * 100.0
+        val outdated = movePct >= 0.5
+        val label = if (outdated) "⚠️ Исторический план, цена ушла от входа" else "Расчёт по закрытым свечам (не ордер)"
+        return "$label\\nВход-ориентир: ${"%.4f".format(r.signalEntry)} · Стоп: ${"%.4f".format(r.signalStop)}\\nЦель 2R: ${"%.4f".format(r.signalTarget)} · R:R 1:2"
+    }
+
     private fun buildCardText(r: ScanResult): String {
         val lines = ArrayList<String>()
         lines.add(r.symbol)
@@ -1048,6 +1056,7 @@ class MainActivity : Activity() {
         if (hasSignal && r.signalPattern.isNotEmpty()) lines.add(r.signalPattern)
         lines.add("Цена: " + "%.4f".format(r.price) + " · 15м: " + "%+.2f".format(r.change15m) + "%")
         if (hasSignal) lines.add("Свеча подтверждения закрыта")
+        if (hasSignal && cardLevels(r).isNotEmpty()) lines.add(cardLevels(r))
         val open = PaperTrading.openTrades().firstOrNull { it.symbol == r.symbol }
         if (open != null) {
             val pnl = open.unrealizedPnl(r.price)
@@ -2153,6 +2162,22 @@ class MainActivity : Activity() {
                 }
             }
         }
+        // Reference setup based on the actual closed pattern and confirmation candles.
+        // Not an executable order or a guaranteed fill at the historical close.
+        val patternBar = candles[candles.size - 3]
+        val confirmBar = candles[candles.size - 2]
+        val referenceEntry = if (sigResult.type.isNotEmpty()) confirmBar.close else 0.0
+        val referenceStop = when (sigResult.type) {
+            "long" -> min(patternBar.low, confirmBar.low)
+            "short" -> max(patternBar.high, confirmBar.high)
+            else -> 0.0
+        }
+        val referenceRisk = if (sigResult.type == "long") referenceEntry - referenceStop
+                            else referenceStop - referenceEntry
+        val validReference = referenceEntry > 0.0 && referenceStop > 0.0 && referenceRisk > 0.0
+        val referenceTarget = if (validReference)
+            referenceEntry + (if (sigResult.type == "long") 2.0 else -2.0) * referenceRisk
+            else 0.0
         if (signals.isEmpty() && !forceInclude && sigResult.type.isEmpty()) return null
 
         if (sigResult.type.isNotEmpty()) {
@@ -2193,6 +2218,9 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
             signalStrength = sigResult.strength,
             signalCandleTime = sigResult.candleTime,
             signalPattern = sigResult.pattern,
+            signalEntry = if (validReference) referenceEntry else 0.0,
+            signalStop = if (validReference) referenceStop else 0.0,
+            signalTarget = referenceTarget,
             peakForecast = peak.mid,
             peakLow = peak.low,
             peakHigh = peak.high,
@@ -2375,6 +2403,14 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
             confirmation.setTextColor(Prefs.textDim(this))
             confirmation.textSize = 14f
             row.addView(confirmation)
+        }
+        if (hasSignal && cardLevels(r).isNotEmpty()) {
+            val levels = TextView(this)
+            levels.text = cardLevels(r)
+            levels.setTextColor(Prefs.textDim(this))
+            levels.textSize = 14f
+            levels.setPadding(0, 8, 0, 0)
+            row.addView(levels)
         }
         row.addView(makePaperTradingRow(r))
         row.setOnClickListener { openChart(r.symbol) }
