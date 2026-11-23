@@ -877,12 +877,14 @@ liqThresholdLabel.text = formatThreshold(Prefs.liqThreshold(this))
         setContentView(scroll)
 
         listOf(
-            darkBtn, lightBtn, candBtn, lineBtn,
+            darkBtn, lightBtn,
             soundBtn, resetBtn, back,
             liqToggle, speedToggle, volumeToggle,
             liqSoundBtn, speedSoundBtn, volumeSoundBtn
         ).forEach { styleButton(it) }
 
+        chartButtons.forEach { (_, b) -> styleButton(b) }
+        volumeButtons.forEach { (_, b) -> styleButton(b) }
         scanLimitButtons.forEach { (_, b) -> styleButton(b) }
                 signalTfButtons.forEach { (_, b) -> styleButton(b) }
         updateSignalTfButtons(signalTfButtons, signalTfLabel)
