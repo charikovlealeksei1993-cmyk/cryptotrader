@@ -45,8 +45,25 @@ object SignalDetector {
         val evening = older.close > older.open &&
             abs(prev.close - prev.open) < abs(older.close - older.open) * 0.5 &&
             p.close < p.open && p.close < (older.open + older.close) / 2
+        val inside = p.high < prev.high && p.low > prev.low
+        val outside = p.high > prev.high && p.low < prev.low
+        val bullHarami = prev.close < prev.open && p.close > p.open &&
+            p.open > prev.close && p.close < prev.open
+        val bearHarami = prev.close > prev.open && p.close < p.open &&
+            p.open < prev.close && p.close > prev.open
+        val tweezerBottom = down && p.close > p.open &&
+            abs(p.low - prev.low) <= range * 0.1
+        val tweezerTop = up && p.close < p.open &&
+            abs(p.high - prev.high) <= range * 0.1
+        val dragonfly = down && body <= range * 0.1 && lower > range * 0.6
+        val gravestone = up && body <= range * 0.1 && upper > range * 0.6
         val longName = when {
             bullEngulf -> "Бычье поглощение"
+            bullHarami -> "Бычье харами"
+            tweezerBottom -> "Пинцет: дно"
+            dragonfly -> "Доджи-стрекоза"
+            down && inside && p.close > p.open -> "Бычий внутренний бар"
+            down && outside && p.close > p.open -> "Бычий внешний бар"
             morning -> "Утренняя звезда"
             down && hammer -> "Молот"
             down && p.close > p.open && lower > body && p.close > (prev.open + prev.close) / 2 -> "Просвет в облаках"
@@ -54,6 +71,11 @@ object SignalDetector {
         }
         val shortName = when {
             bearEngulf -> "Медвежье поглощение"
+            bearHarami -> "Медвежье харами"
+            tweezerTop -> "Пинцет: вершина"
+            gravestone -> "Доджи-надгробие"
+            up && inside && p.close < p.open -> "Медвежий внутренний бар"
+            up && outside && p.close < p.open -> "Медвежий внешний бар"
             evening -> "Вечерняя звезда"
             up && star -> "Падающая звезда"
             up && p.close < p.open && upper > body && p.close < (prev.open + prev.close) / 2 -> "Завеса из тёмных облаков"
