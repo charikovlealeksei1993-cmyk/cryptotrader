@@ -1019,16 +1019,32 @@ class MainActivity : Activity() {
         return false
     }
 
+    private fun cardSignalStatus(r: ScanResult): String {
+        val direction = when (r.signalType) {
+            "long" -> "LONG"
+            "short" -> "SHORT"
+            else -> return "⏳ Нет подтверждённого сигнала"
+        }
+        return if (r.signalStrength == "strong") "✅ Сигнал $direction"
+        else "🟡 $direction · слабый сигнал, вход не подтверждён силой"
+    }
+
+    private fun cardPositionConflict(r: ScanResult): Boolean {
+        val open = PaperTrading.openTrades().firstOrNull { it.symbol == r.symbol } ?: return false
+        return (r.signalType == "long" && !open.isLong) ||
+            (r.signalType == "short" && open.isLong)
+    }
+
     private fun buildCardText(r: ScanResult): String {
         val lines = ArrayList<String>()
         lines.add(r.symbol)
         val hasSignal = r.signalType == "long" || r.signalType == "short"
         val direction = if (r.signalType == "long") "LONG" else "SHORT"
-        lines.add(when {
-            !hasSignal -> "Нет подтверждённого сигнала"
-            r.signalStrength == "strong" -> "Сигнал $direction"
-            else -> "Кандидат $direction"
-        })
+        lines.add(cardSignalStatus(r))
+        if (hasSignal && r.signalStrength != "strong")
+            lines.add("Паттерн подтверждён свечой, но условий для сильного сигнала недостаточно")
+        if (cardPositionConflict(r))
+            lines.add("⚠️ Противоположный сигнал к открытой виртуальной позиции")
         if (hasSignal && r.signalPattern.isNotEmpty()) lines.add(r.signalPattern)
         lines.add("Цена: " + "%.4f".format(r.price) + " · 15м: " + "%+.2f".format(r.change15m) + "%")
         if (hasSignal) lines.add("Свеча подтверждения закрыта")
@@ -2306,11 +2322,7 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
         val hasSignal = r.signalType == "long" || r.signalType == "short"
         val strong = r.signalStrength == "strong"
         val direction = if (r.signalType == "long") "LONG" else "SHORT"
-        val status = when {
-            !hasSignal -> "⏳ НЕТ ПОДТВЕРЖДЁННОГО СИГНАЛА"
-            strong -> "✅ СИГНАЛ $direction"
-            else -> "🟡 КАНДИДАТ $direction · ожидание усиления"
-        }
+        val status = cardSignalStatus(r)
         val statusColor = when {
             !hasSignal -> Prefs.textDim(this)
             strong -> Color.rgb(30, 120, 60)
@@ -2323,6 +2335,24 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
         statusLine.textSize = 17f
         statusLine.setPadding(0, 8, 0, 0)
         row.addView(statusLine)
+
+        if (hasSignal && !strong) {
+            val reason = TextView(this)
+            reason.text = "Свеча закрыта, но силы сигнала недостаточно для входа"
+            reason.setTextColor(Prefs.textDim(this))
+            reason.textSize = 13f
+            row.addView(reason)
+        }
+        if (cardPositionConflict(r)) {
+            val warning = TextView(this)
+            warning.text = "⚠️ Сигнал против открытой виртуальной позиции"
+            warning.setTextColor(Color.rgb(210, 105, 45))
+            warning.setTypeface(null, Typeface.BOLD)
+            warning.textSize = 14f
+            warning.setPadding(0, 8, 0, 0)
+            row.addView(warning)
+        }
+
 
         if (hasSignal && r.signalPattern.isNotEmpty()) {
             val pattern = TextView(this)
