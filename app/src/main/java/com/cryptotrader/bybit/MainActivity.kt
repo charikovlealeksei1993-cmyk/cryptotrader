@@ -1020,229 +1020,27 @@ class MainActivity : Activity() {
     }
 
     private fun buildCardText(r: ScanResult): String {
-        val sb = StringBuilder()
-        val liqThreshold = Prefs.liqThreshold(this)
-
-        nearestFutureZone(r.symbol, r.price)?.let { zone ->
-            val distancePct = kotlin.math.abs(zone.price / r.price - 1.0) * 100.0
-            if (distancePct <= 1.0) {
-                sb.appendLine("⚠️ Оценочный кластер ${zone.side} ${zone.leverage}× · ${"%.2f".format(distancePct)}% от цены")
-            }
+        val lines = ArrayList<String>()
+        lines.add(r.symbol)
+        val hasSignal = r.signalType == "long" || r.signalType == "short"
+        val direction = if (r.signalType == "long") "LONG" else "SHORT"
+        lines.add(when {
+            !hasSignal -> "Нет подтверждённого сигнала"
+            r.signalStrength == "strong" -> "Сигнал $direction"
+            else -> "Кандидат $direction"
+        })
+        if (hasSignal && r.signalPattern.isNotEmpty()) lines.add(r.signalPattern)
+        lines.add("Цена: " + "%.4f".format(r.price) + " · 15м: " + "%+.2f".format(r.change15m) + "%")
+        if (hasSignal) lines.add("Свеча подтверждения закрыта")
+        val open = PaperTrading.openTrades().firstOrNull { it.symbol == r.symbol }
+        if (open != null) {
+            val pnl = open.unrealizedPnl(r.price)
+            lines.add("Виртуальная позиция " + (if (open.isLong) "LONG" else "SHORT") +
+                " · PnL " + "%+.2f".format(pnl) + " USD")
         }
-        if (cascadeAlertState[r.symbol] == true) {
-            sb.appendLine("💥 Возможный каскад ликвидаций (по реальным сделкам)")
-        }
-
-        r.accumulation?.let { acc ->
-            if (acc.level.isNotEmpty()) {
-                val accEmoji = when (acc.level) { "strong" -> "🔥"; "medium" -> "🟢"; else -> "🟡" }
-                val accDir = if (acc.type == "long") "В ЛОНГ" else "В ШОРТ"
-                sb.appendLine("$accEmoji НАКОПЛЕНИЕ $accDir")
-            }
-        }
-
-        val patternSuffix = if (r.signalPattern.isNotEmpty()) " — ${r.signalPattern}" else ""
-        when {
-            r.signalType == "short" && r.signalStrength == "strong" ->
-                sb.appendLine("🟢 ВХОД В ШОРТ$patternSuffix")
-            r.signalType == "long" && r.signalStrength == "strong" ->
-                sb.appendLine("🟢 ВХОД В ЛОНГ$patternSuffix")
-            r.signalType == "short" && r.signalStrength == "weak" && !isWeakConflict(r) ->
-                sb.appendLine("🟡 Возможен вход в шорт (объём/позиция не дотянули)$patternSuffix")
-            r.signalType == "long" && r.signalStrength == "weak" && !isWeakConflict(r) ->
-                sb.appendLine("🟡 Возможен вход в лонг (объём/позиция не дотянули)$patternSuffix")
-        }
-
-        val scoreEmoji = when {
-            r.signalStrength == "strong" -> "🟢🚀"
-            r.signalStrength == "weak" && !isWeakConflict(r) -> "🟡🚀"
-            r.accumulation?.level == "strong" -> "🔥"
-            r.accumulation?.level == "medium" -> "🟢"
-            r.accumulation?.level == "weak" -> "🟡"
-            r.score >= 3 -> "🚀🚀🚀"
-            r.score == 2 -> "🚀🚀"
-            else -> "🚀"
-        }
-        sb.appendLine("$scoreEmoji ${r.symbol}")
-        sb.appendLine("Цена: ${"%.4f".format(r.price)}  ·  15м: ${"%+.2f".format(r.change15m)}%")
-
-        val hourPct = if (r.turnover24h > 0) r.turnover1h / r.turnover24h * 100 else 0.0
-        sb.appendLine("💰 24ч: ${UiUtils.formatMoney(r.turnover24h)} · 1ч: ${UiUtils.formatMoney(r.turnover1h)} (${"%.1f".format(hourPct)}%)")
-
-        if (r.signals.isNotEmpty()) {
-            r.signals.forEach { sig -> sb.appendLine("${sig.emoji} ${sig.detail} " + dirForMove(sig.movePct)) }
-        }
-
-        if (r.deltaPct1m != 0.0 || r.flowStatus.isNotEmpty()) {
-            val deltaEmoji = when {
-                r.deltaPct1m > 20 -> "🟢"
-                r.deltaPct1m < -20 -> "🔴"
-                else -> "⚪"
-            }
-            val deltaSign = if (r.deltaPct1m >= 0) "+" else ""
-            val realDeltaStr = when {
-                r.realDeltaUsd == 0.0 -> "—"
-                r.realDeltaUsd > 0 -> "+${UiUtils.formatMoney(r.realDeltaUsd)}"
-                else -> "-${UiUtils.formatMoney(-r.realDeltaUsd)}"
-            }
-            val flowLabel = when (r.flowStatus) {
-                "new_long" -> "New Money ↑"
-                "short_squeeze" -> "Short Squeeze"
-                "new_short" -> "New Money ↓"
-                "long_squeeze" -> "Long Squeeze"
-                else -> "Churn"
-            }
-            sb.appendLine("Δ 1м: $deltaEmoji $deltaSign${"%.0f".format(r.deltaPct1m)}% ($realDeltaStr buy/sell) · $flowLabel " + dirForFlow(r.flowStatus))
-        }
-
-        val cvdEmoji = if (r.cvd1h > 0) "🟢" else if (r.cvd1h < 0) "🔴" else "⚪"
-        val cvdSign = if (r.cvd1h >= 0) "+" else ""
-        val burstEmoji = if (r.burstsUp > r.burstsDown) "🟢" else if (r.burstsDown > r.burstsUp) "🔴" else "⚪"
-        sb.appendLine("📊 CVD 1ч: $cvdSign${UiUtils.formatMoney(r.cvd1h)} $cvdEmoji · Толчки: ${r.burstsUp}↑ / ${r.burstsDown}↓ $burstEmoji")
-
-        val liq = getCachedLiqStats(r.symbol)
-        if (liq != null && liq.total15m >= liqThreshold) {
-            val who = if (liq.dominantIsLong) "🐂 лонги" else "🐻 шорты"
-            val domPct = if (liq.dominantIsLong) liq.longPct else liq.shortPct
-            val trendIcon = when (liq.trend) {
-                "rising" -> "🔥 растёт"
-                "falling" -> "🪫 затухает"
-                else -> "➡️ стабильно"
-            }
-            sb.appendLine("💥 Ликвидации 15м: ${UiUtils.formatMoney(liq.total15m)} · $who ${"%.0f".format(domPct)}% · $trendIcon " + dirForLiq(liq))
-            val peakList = synchronized(MarketState.cascadePeakLock) {
-                MarketState.cascadePeaks[r.symbol]?.toList() ?: emptyList()
-            }
-            if (peakList.isNotEmpty()) {
-                val avgPeak = peakList.map { it.sum }.average()
-                if (avgPeak > 0) {
-                    val percent = (liq.total15m / avgPeak * 100).toInt()
-                    val maxPeak = peakList.maxOf { it.sum }
-                    val exceeded = liq.total15m > maxPeak
-                    val peaksStr = peaksString(peakList)
-                    val suffix = if (exceeded) " (перебит максимум!)" else ""
-                    sb.appendLine("   Прошлые пики: $peaksStr · сейчас $percent% от среднего$suffix")
-                }
-            }
-            val ltList = synchronized(MarketState.largeTradesLock) {
-                MarketState.largeTrades[r.symbol]?.toList() ?: emptyList()
-            }
-            if (ltList.isNotEmpty()) {
-                val ltK = (Prefs.largeTradeThreshold(this) / 1000).toInt()
-                sb.appendLine("🐋 Крупные (≥$${ltK}K): ${ltList.size} шт")
-                val last3 = ltList.takeLast(3).reversed()
-                for (lt in last3) {
-                    val ago = ((System.currentTimeMillis() - lt.time) / 60_000L).coerceAtLeast(0)
-                    val sign = if (lt.isBuy) "+" else "-"
-                    val emoji = if (lt.isBuy) "🟢" else "🔴"
-                    sb.appendLine("   $emoji $sign${UiUtils.formatMoney(lt.usd)} @ ${"%.4f".format(lt.price)} · ${ago}м")
-                }
-            }
-            val zoneAhead = if (!liq.dominantIsLong) r.peakForecast > r.price else r.peakForecast < r.price
-            if (r.peakForecast > 0 && zoneAhead) {
-                val dirWord = if (!liq.dominantIsLong) "вверх" else "вниз"
-                val zone = if (r.peakLow > 0 && r.peakHigh > r.peakLow) {
-                    "зона ${"%.4f".format(r.peakLow)} – ${"%.4f".format(r.peakHigh)}"
-                } else {
-                    "%.4f".format(r.peakForecast)
-                }
-                val conf = if (r.peakConfident) "" else " ⚠️"
-                sb.appendLine("🎯 Зона выноса: $zone (ещё ${"%.1f".format(r.peakRemainPct)}% $dirWord)$conf")
-            }
-        }
-
-        if (r.openInterest > 0) {
-            val oiSign = if (r.openInterestChange >= 0) "+" else ""
-            val oiUsd = r.openInterest * r.price
-            val trendIcon = when (r.oiTrend) {
-                "accelerating" -> " ↗️"
-                "slowing" -> " ↘️"
-                else -> ""
-            }
-            sb.appendLine("📊 OI: ${UiUtils.formatMoney(r.openInterest)} (~${UiUtils.formatMoney(oiUsd)}) · $oiSign${"%.2f".format(r.openInterestChange)}%$trendIcon")
-        }
-
-        if (r.fundingRate != 0.0) {
-            val frPct = r.fundingRate * 100
-            val frSign = if (frPct >= 0) "+" else ""
-            val frPayer = if (frPct > 0) " (лонги платят)" else if (frPct < 0) " (шорты платят)" else ""
-            val frColor = if (frPct > 0.05) "🔴" else if (frPct < -0.05) "🟢" else "⚪"
-            val timeLeftMs = r.nextFundingTime - System.currentTimeMillis()
-            val timeLeftStr = if (r.nextFundingTime > 0) " · до выплаты: ${formatTimeLeft(timeLeftMs)}" else ""
-            sb.appendLine("📈 Ставка: $frSign${"%.3f".format(frPct)}%$frPayer$timeLeftStr $frColor")
-        }
-
-        val sp = synchronized(MarketState.liveLock) { MarketState.liveSpeeds[r.symbol] }
-        if (sp != null) {
-            val icon = when {
-                sp.accelerating -> "⚡⚡⚡ ускорение"
-                sp.dying -> "🪫 затухание"
-                else -> "⚡ стабильно"
-            }
-            sb.appendLine("$icon · ${"%.2f".format(sp.speedNow)}%/мин")
-        }
-        val ts = synchronized(MarketState.liveLock) { MarketState.liveTradeSpeeds[r.symbol] }
-        if (ts != null) {
-            val tsEmoji = when {
-                ts.pctPerMin > 0.3 -> "🔥↑"
-                ts.pctPerMin < -0.3 -> "🔥↓"
-                ts.pctPerMin > 0.05 -> "·↑"
-                ts.pctPerMin < -0.05 -> "·↓"
-                else -> "·"
-            }
-            val tsSign = if (ts.pctPerMin >= 0) "+" else ""
-            sb.appendLine("$tsEmoji $tsSign${"%.2f".format(ts.pctPerMin)}%/мин (${ts.tradeCount} сделок) " + dirForSpeed(ts.pctPerMin))
-        }
-
-        if (r.signalType.isEmpty()) {
-            val hist = synchronized(MarketState.signalHistoryLock) { MarketState.signalHistory[r.symbol] }
-            if (hist != null && hist.candleTime > 0L) {
-                val ageMs = System.currentTimeMillis() - hist.detectedAt
-                val ageMin = ageMs / 60_000L
-                val ageLabel = when {
-                    ageMin < 1 -> "только что"
-                    ageMin < 60 -> "$ageMin мин назад"
-                    ageMin < 1440 -> "${ageMin / 60} ч назад"
-                    else -> "${ageMin / 1440} дн назад"
-                }
-                val sigLabel = if (hist.type == "long") "лонг" else "шорт"
-                val strLabel = if (hist.strength == "strong") "STRONG" else "WEAK"
-                sb.appendLine("📜 Был сигнал $ageLabel ($strLabel $sigLabel)")
-            }
-        }
-
-        r.accumulation?.let { acc ->
-            if (acc.level.isNotEmpty()) {
-                val accEmoji = when (acc.level) { "strong" -> "🔥"; "medium" -> "🟢"; else -> "🟡" }
-                val accDir = if (acc.type == "long") "лонг" else "шорт"
-                sb.appendLine("$accEmoji Накопление $accDir · OI +${"%.2f".format(acc.oiChangePct)}% (${acc.oiBarsPositive}/9) · Диапазон ${"%.2f".format(acc.rangePct)}% · Delta ${UiUtils.formatMoney(acc.deltaUsd)} " + dirForAcc(acc.type))
-            }
-        }
-
-        r.macroAccumulation?.let { acc ->
-            if (acc.level.isNotEmpty()) {
-                val accEmoji = when (acc.level) { "strong" -> "🔥"; "medium" -> "🟢"; else -> "🟡" }
-                val accDir = if (acc.type == "long") "лонг" else "шорт"
-                val barsTotal = Prefs.accHours(this) * 4
-                sb.appendLine("🏛 $accEmoji МАКРО-НАКОПЛЕНИЕ $accDir · OI +${"%.2f".format(acc.oiChangePct)}% (${acc.oiBarsPositive}/$barsTotal) · Диапазон ${"%.2f".format(acc.rangePct)}% · Delta ${UiUtils.formatMoney(acc.deltaUsd)}")
-            }
-        }
-
-        val openTrade = PaperTrading.openTrades().firstOrNull { it.symbol == r.symbol }
-        if (openTrade != null) {
-            val pnl = openTrade.unrealizedPnl(r.price)
-            val pnlPct = openTrade.unrealizedPnlPct(r.price)
-            val dir = if (openTrade.isLong) "🟢 LONG" else "🔴 SHORT"
-            val pnlSign = if (pnl >= 0) "+" else ""
-            val autoBadge = if (openTrade.isAuto) " 🤖" else ""
-            sb.appendLine("📈 Открыта $dir$autoBadge · $${"%.2f".format(openTrade.sizeUsd)} · $pnlSign$${"%.2f".format(pnl)} ($pnlSign${"%.1f".format(pnlPct)}%)")
-        } else {
-            val sizeUsd = Prefs.paperTradeSize(this)
-            sb.appendLine("💡 BUY $${"%.0f".format(sizeUsd)} / SELL $${"%.0f".format(sizeUsd)}")
-        }
-
-        return sb.toString().trim()
+        return lines.joinToString("\n")
     }
+
     private fun sortResults(list: List<ScanResult>): List<ScanResult> {
         val base = list.sortedWith(
             compareByDescending<ScanResult> { it.score }.thenByDescending { abs(it.change15m) }
