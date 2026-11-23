@@ -1570,47 +1570,43 @@ class MainActivity : Activity() {
             return synchronized(MarketState.liqClustersLock) { MarketState.liqClusters[symbol] ?: emptyList() }
         }
         val cutoff = System.currentTimeMillis() - 24 * 60 * 60_000L
-        val recent = ArrayList<LiqEvent>()
-        for (e in events) if (e.time >= cutoff && e.price > 0.0) recent.add(e)
-        if (recent.isEmpty()) return emptyList()
+        val recent = events.filter { it.time >= cutoff && it.price > 0.0 && it.usd > 0.0 }
+        if (recent.isEmpty()) {
+            synchronized(MarketState.liqClustersLock) { MarketState.liqClusters[symbol] = emptyList() }
+            return emptyList()
+        }
 
-        var sumPrice = 0.0
-        for (e in recent) sumPrice += e.price
-        val avgPrice = sumPrice / recent.size
-        if (avgPrice <= 0) return emptyList()
+        val avgPrice = recent.sumOf { it.price } / recent.size
         val binSize = avgPrice * 0.001
-        if (binSize <= 0) return emptyList()
-
-        val bins = HashMap<Long, DoubleArray>()
-        for (e in recent) {
-            val idx = (e.price / binSize).toLong()
-            val arr = bins.getOrPut(idx) { doubleArrayOf(e.price, e.price, 0.0, 0.0, 0.0) }
-            if (e.price < arr[0]) arr[0] = e.price
-            if (e.price > arr[1]) arr[1] = e.price
-            arr[2] += e.usd
-            if (e.isLong) arr[3] += e.usd else arr[4] += e.usd
-        }
-
-        val sorted = bins.values.sortedBy { it[0] }
-        val merged = ArrayList<DoubleArray>()
-        for (arr in sorted) {
-            if (merged.isNotEmpty() && arr[0] <= merged.last()[1] * 1.0015) {
-                val m = merged.last()
-                if (arr[1] > m[1]) m[1] = arr[1]
-                m[2] += arr[2]
-                m[3] += arr[3]
-                m[4] += arr[4]
-            } else {
-                merged.add(doubleArrayOf(arr[0], arr[1], arr[2], arr[3], arr[4]))
-            }
-        }
+        if (binSize <= 0.0) return emptyList()
 
         val out = ArrayList<LiqCluster>()
-        for (arr in merged) {
-            // Display every real liquidation price group, regardless of its USD size.
-            // The configured liquidation threshold still applies to alerts/signals only.
-            if (arr[2] <= 0.0) continue
-            out.add(LiqCluster(arr[0], arr[1], arr[2], arr[3] >= arr[4]))
+        // Never combine liquidated LONGs with liquidated SHORTs, even when their
+        // execution prices overlap. Each direction has its own price clusters.
+        for (isLong in listOf(true, false)) {
+            val bins = HashMap<Long, DoubleArray>()
+            for (e in recent) {
+                if (e.isLong != isLong) continue
+                val idx = (e.price / binSize).toLong()
+                val arr = bins.getOrPut(idx) { doubleArrayOf(e.price, e.price, 0.0) }
+                if (e.price < arr[0]) arr[0] = e.price
+                if (e.price > arr[1]) arr[1] = e.price
+                arr[2] += e.usd
+            }
+
+            val merged = ArrayList<DoubleArray>()
+            for (arr in bins.values.sortedBy { it[0] }) {
+                if (merged.isNotEmpty() && arr[0] <= merged.last()[1] * 1.0015) {
+                    val m = merged.last()
+                    if (arr[1] > m[1]) m[1] = arr[1]
+                    m[2] += arr[2]
+                } else {
+                    merged.add(doubleArrayOf(arr[0], arr[1], arr[2]))
+                }
+            }
+            for (arr in merged) {
+                if (arr[2] > 0.0) out.add(LiqCluster(arr[0], arr[1], arr[2], isLong))
+            }
         }
         out.sortByDescending { it.usd }
         synchronized(MarketState.liqClustersLock) {
@@ -1618,6 +1614,7 @@ class MainActivity : Activity() {
         }
         return out
     }
+
 
     private fun updateCascadePeak(symbol: String, currentSum: Double) {
         val now = System.currentTimeMillis()
