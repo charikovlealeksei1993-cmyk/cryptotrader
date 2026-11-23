@@ -846,6 +846,7 @@ class MainActivity : Activity() {
 
     private fun applyChartData(candles: List<Candle>, ls: List<LsPoint>) {
         if (Prefs.chartType(this) == "volume") return
+        chartView.setVolumeBars(emptyList())
         allCandles = candles
         visibleCount = min(100, candles.size)
         offset = max(0, candles.size - visibleCount + visibleCount / 5)
@@ -2081,11 +2082,11 @@ class MainActivity : Activity() {
         visibleCount = visibleCount.coerceIn(1, candles.size)
         if (wasAtRight) offset = max(0, candles.size - visibleCount)
         else offset = offset.coerceIn(0, max(0, candles.size - visibleCount))
+        chartView.setVolumeBars(bars)
         chartView.setData(candles, offset, visibleCount, "candles", Prefs.theme(this))
         chartView.setLiqClusters(computeLiqClusters(currentSymbol))
-        val latest = bars.last()
         chartTitle.text = currentSymbol + " · Объём " + formatVolumeBarThreshold(activeVolumeThreshold) +
-            " · Δ " + formatVolumeBarThreshold(kotlin.math.abs(latest.deltaUsdt))
+            " · Δ% / CVD ↓"
         chartTitle.setTextColor(Prefs.textDim(this))
     }
 
@@ -2993,6 +2994,7 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
             allCandles = emptyList()
             offset = 0
             visibleCount = 100
+            chartView.setVolumeBars(emptyList())
             chartView.setData(emptyList(), 0, visibleCount, "candles", Prefs.theme(this))
             chartTitle.text = symbol + " · Объёмные (накопление сделок...)"
             startSocket(symbol)
