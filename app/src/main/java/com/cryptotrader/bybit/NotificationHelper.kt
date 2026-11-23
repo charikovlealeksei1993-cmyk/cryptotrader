@@ -24,6 +24,13 @@ object NotificationHelper {
     private const val SIGNAL_NOTIFY_COOLDOWN_MS = 5 * 60 * 1000L
     private const val LIQUIDATION_ALERT_COOLDOWN_MS = 60 * 60_000L
     private val liquidationAlertTimes = HashMap<String, Long>()
+    private fun lastLiqAlert(context: Context, symbol: String): Long =
+        context.getSharedPreferences("liq_alert_history", Context.MODE_PRIVATE)
+            .getLong(symbol, 0L)
+    private fun storeLiqAlert(context: Context, symbol: String, time: Long) {
+        context.getSharedPreferences("liq_alert_history", Context.MODE_PRIVATE)
+            .edit().putLong(symbol, time).apply()
+    }
 
     fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -134,11 +141,12 @@ object NotificationHelper {
                     if (resetBelow || !hasFreshTrade) {
                         MarketState.liquidationActive.remove(r.symbol)
                     }
-                    val lastAlert = liquidationAlertTimes[r.symbol] ?: 0L
+                    val lastAlert = max(liquidationAlertTimes[r.symbol] ?: 0L, lastLiqAlert(context, r.symbol))
                     if (active && r.symbol !in MarketState.liquidationActive &&
                         now - lastAlert >= LIQUIDATION_ALERT_COOLDOWN_MS) {
                         MarketState.liquidationActive.add(r.symbol)
                         liquidationAlertTimes[r.symbol] = now
+                        storeLiqAlert(context, r.symbol, now)
                         triggerNow = true
                     }
                 }
@@ -238,28 +246,15 @@ object NotificationHelper {
             val title = "$label — ${r.symbol}"
             val body = buildString {
                 appendLine("Цена: ${"%.4f".format(r.price)} · 15м: ${"%+.2f".format(r.change15m)}%")
-                val liq = MarketState.liqStatsCache[r.symbol]
-                // Liquidation figures in signal notifications must also respect the user's threshold.
-                if (Prefs.notifEnabled(context, "liquidation") &&
-                    liq != null && liq.total15m >= Prefs.liqThreshold(context)) {
-                    val who = if (liq.dominantIsLong) "🐂 лонги" else "🐻 шорты"
-                    appendLine("💥 Ликвидации: ${UiUtils.formatMoney(liq.total15m)} · $who")
-                }
                 if (r.peakForecast > 0) {
                     appendLine("🎯 Зона: ${"%.4f".format(r.peakForecast)} (±${"%.1f".format(r.peakRemainPct)}%)")
                 }
             }.trim()
 
-            val liqTotal = MarketState.liqStatsCache[r.symbol]?.total15m ?: 0.0
             val builder = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_notify_chat)
                 .setContentTitle(title)
-                .setContentText(
-                    if (Prefs.notifEnabled(context, "liquidation") &&
-                        liqTotal >= Prefs.liqThreshold(context))
-                        "Цена ${"%.4f".format(r.price)} · Ликв ${UiUtils.formatMoney(liqTotal)}"
-                    else "Цена ${"%.4f".format(r.price)} · сигнал ${r.signalType}"
-                )
+                .setContentText("Цена ${"%.4f".format(r.price)} · сигнал ${r.signalType}")
                 .setStyle(NotificationCompat.BigTextStyle().bigText(body))
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setContentIntent(pending)
