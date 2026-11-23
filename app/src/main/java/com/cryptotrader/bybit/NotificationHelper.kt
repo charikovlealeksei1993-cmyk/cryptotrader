@@ -218,7 +218,7 @@ object NotificationHelper {
                     else -> "weak"
                 }
                 if (Prefs.signalSoundEnabled(context, tier)) {
-                    playSoundFor(context, "signal_$tier")
+                    playSoundFor(context, "signal_${r.signalType}_$tier")
                 }
             }
             vibrate(context, 500)
@@ -279,7 +279,9 @@ object NotificationHelper {
             val fallback = if (type.startsWith("signal_")) {
                 // Different pitches by strength and direction are handled by
                 // user-selected sounds; default system tone remains audible.
-                Prefs.soundUriFor(context, "signal")
+                Prefs.soundUriFor(context, type.substringAfter("signal_").substringBeforeLast("_").let { "signal_$it" })
+                    ?: Prefs.soundUriFor(context, "signal_" + type.substringAfterLast("_"))
+                    ?: Prefs.soundUriFor(context, "signal")
             } else null
             val uri = Prefs.soundUriFor(context, type)
                 ?: fallback
