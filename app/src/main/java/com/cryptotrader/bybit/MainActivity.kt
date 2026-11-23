@@ -2201,12 +2201,10 @@ class MainActivity : Activity() {
         val confirmationTime = candles[candles.size - 2].time
         val closedFlow = if (Prefs.signalTf(this) == "1")
             tradeDeltaAnalyzer.closedMinuteFlow(symbol, confirmationTime) else null
-        // Use the completed confirmation candle, not the still-forming last candle.
-        val confirmationVol = candles[candles.size - 2].volume
-        val historicalVolumes = candles.subList(candles.size - 22, candles.size - 2)
-        val baselineVolume = historicalVolumes.map { it.volume }.average()
-        val turnoverAcceleration = if (baselineVolume > 0.0)
-            confirmationVol / baselineVolume else null
+        // Independent of the chart's selected volume-bar threshold.
+        val turnoverAcceleration = if (Prefs.signalTf(this) == "1")
+            tradeDeltaAnalyzer.closedMinuteSpeedRatio(symbol, confirmationTime)
+        else null
         val trapCandidate = SignalDetector.detectReversalSignal(
             candles, liq, liqThreshold,
             flowDeltaUsd = closedFlow?.first,
