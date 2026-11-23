@@ -15,11 +15,12 @@ object SignalDetector {
         flowDeltaUsd: Double? = null,
         cvdTrendUsd: Double? = null,
         turnoverAcceleration: Double? = null,
-        adaptiveVolumeRatio: Double? = null
+        adaptiveVolumeRatio: Double? = null,
+        timeframeMinutes: Int = 1
     ): SignalResult {
         if (candles.size < 8) return SignalResult("", 0L, "")
         val confirmation = candles[candles.size - 2]
-        if (confirmation.time + 60_000L > System.currentTimeMillis())
+        if (confirmation.time + timeframeMinutes.coerceAtLeast(1) * 60_000L > System.currentTimeMillis())
             return SignalResult("", 0L, "")
         val p = candles[candles.size - 3] // pattern candle
         val c = candles[candles.size - 2] // confirmation candle
@@ -86,12 +87,11 @@ object SignalDetector {
         val strength = when {
             score >= 85 -> "strong"
             score >= 70 -> "medium"
-            score >= 50 -> "weak"
             else -> "weak"
         }
         val name = if (type == "long") longName else shortName
         return SignalResult(type, c.time, strength,
-            "$name · $score/100 · " + if (confirmed) "подтверждён" else "без подтверждения")
+            "$name · $score/100 · " + (if (confirmed) "подтверждён" else "без подтверждения"))
     }
 
     // Kept for compatibility with existing call sites; a candle pattern does not
