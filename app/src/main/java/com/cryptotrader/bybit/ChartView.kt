@@ -840,17 +840,31 @@ if (!isVolumeChart) {
                     "60" -> "1ч"
                     else -> ""
                 }
-                // Compact chart label: direction + frozen score + confirmation + timeframe.
-                // Keep the full pattern description in SignalMarker for other UI surfaces.
+                // Keep a recognizable, shortened pattern name on the chart.
+                val patternName = marker.pattern.substringBefore(" · ").trim()
+                val abbreviated = when {
+                    patternName.contains("Бычье поглощение", true) -> "Быч. поглощ."
+                    patternName.contains("Медвежье поглощение", true) -> "Медв. поглощ."
+                    patternName.contains("Бычий внутренний бар", true) -> "Быч. внутр. бар"
+                    patternName.contains("Медвежий внутренний бар", true) -> "Медв. внутр. бар"
+                    patternName.contains("Доджи-стрекоза", true) -> "Доджи-стрекоза"
+                    patternName.contains("Доджи-надгробие", true) -> "Доджи-надгробие"
+                    patternName.contains("Завеса из тёмных облаков", true) -> "Тёмная завеса"
+                    patternName.contains("Просвет в облаках", true) -> "Просвет"
+                    patternName.contains("Утренняя звезда", true) -> "Утр. звезда"
+                    patternName.contains("Вечерняя звезда", true) -> "Веч. звезда"
+                    patternName.contains("Пинцет", true) -> patternName
+                    else -> if (patternName.length > 18) patternName.take(17) + "…" else patternName
+                }
                 val score = Regex("(\\d+)/100").find(marker.pattern)?.groupValues?.get(1)
                 val confirmation = when {
                     marker.pattern.contains("без подтверждения", ignoreCase = true) -> "?"
                     marker.pattern.contains("подтвержд", ignoreCase = true) -> "✓"
                     else -> ""
                 }
-                val direction = if (isShort) "S" else "L"
-                val shortLabel = if (score != null) "$direction$score$confirmation" else direction
-                val label = if (tfLabel.isNotEmpty()) "$shortLabel · $tfLabel" else shortLabel
+                val scoreLabel = if (score != null) " · $score$confirmation" else ""
+                val tfSuffix = if (tfLabel.isNotEmpty()) " · $tfLabel" else ""
+                val label = "$abbreviated$scoreLabel$tfSuffix"
 
                 val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = Color.argb(180, 0, 20, 10)
