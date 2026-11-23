@@ -840,7 +840,17 @@ if (!isVolumeChart) {
                     "60" -> "1ч"
                     else -> ""
                 }
-                val label = if (tfLabel.isNotEmpty()) "${marker.pattern} ($tfLabel)" else marker.pattern
+                // Compact chart label: direction + frozen score + confirmation + timeframe.
+                // Keep the full pattern description in SignalMarker for other UI surfaces.
+                val score = Regex("(\\d+)/100").find(marker.pattern)?.groupValues?.get(1)
+                val confirmation = when {
+                    marker.pattern.contains("без подтверждения", ignoreCase = true) -> "?"
+                    marker.pattern.contains("подтвержд", ignoreCase = true) -> "✓"
+                    else -> ""
+                }
+                val direction = if (isShort) "S" else "L"
+                val shortLabel = if (score != null) "$direction$score$confirmation" else direction
+                val label = if (tfLabel.isNotEmpty()) "$shortLabel · $tfLabel" else shortLabel
 
                 val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = Color.argb(180, 0, 20, 10)
