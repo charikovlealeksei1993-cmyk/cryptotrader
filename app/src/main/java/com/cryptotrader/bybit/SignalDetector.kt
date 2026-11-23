@@ -6,92 +6,84 @@ import kotlin.math.min
 
 object SignalDetector {
 
-    // ================== Confirmed liquidity trap ==================
-    // Uses CLOSED candles only. The previous candle sweeps a local extreme;
-    // the latest closed candle must reclaim it. No candlestick-pattern fallback.
+    // M1 patterns: evaluate only closed bars; the last bar is assumed to be forming.
+    // A pattern is published after the NEXT candle has closed.
     fun detectReversalSignal(
         candles: List<Candle>,
         liq: LiqStats?,
         liqThreshold: Double
     ): SignalResult {
-        if (candles.size < 25 || liq == null || liq.total15m < liqThreshold) {
-            return SignalResult("", 0L, "")
+        if (candles.size < 8) return SignalResult("", 0L, "")
+        val p = candles[candles.size - 3] // pattern candle
+        val c = candles[candles.size - 2] // confirmation candle
+        val prev = candles[candles.size - 4]
+        val older = candles[candles.size - 5]
+        val range = p.high - p.low
+        if (range <= 0.0 || p.close <= 0.0) return SignalResult("", 0L, "")
+        val body = abs(p.close - p.open)
+        val upper = p.high - max(p.open, p.close)
+        val lower = min(p.open, p.close) - p.low
+        val down = prev.close < older.close
+        val up = prev.close > older.close
+        val bullEngulf = prev.close < prev.open && p.close > p.open &&
+            p.open <= prev.close && p.close >= prev.open
+        val bearEngulf = prev.close > prev.open && p.close < p.open &&
+            p.open >= prev.close && p.close <= prev.open
+        val hammer = lower >= body * 2 && upper <= max(body, range * 0.12)
+        val star = upper >= body * 2 && lower <= max(body, range * 0.12)
+        val morning = older.close < older.open &&
+            abs(prev.close - prev.open) < abs(older.close - older.open) * 0.5 &&
+            p.close > p.open && p.close > (older.open + older.close) / 2
+        val evening = older.close > older.open &&
+            abs(prev.close - prev.open) < abs(older.close - older.open) * 0.5 &&
+            p.close < p.open && p.close < (older.open + older.close) / 2
+        val longName = when {
+            bullEngulf -> "Бычье поглощение"
+            morning -> "Утренняя звезда"
+            down && hammer -> "Молот"
+            down && p.close > p.open && lower > body && p.close > (prev.open + prev.close) / 2 -> "Просвет в облаках"
+            else -> ""
         }
-        val confirm = candles[candles.size - 2]
-        val sweep = candles[candles.size - 3]
-        val history = candles.subList(candles.size - 23, candles.size - 3)
-        val support = history.minOf { it.low }
-        val resistance = history.maxOf { it.high }
-        val avgVolume = history.map { it.volume }.average()
-        if (support <= 0.0 || resistance <= support || avgVolume <= 0.0) {
-            return SignalResult("", 0L, "")
+        val shortName = when {
+            bearEngulf -> "Медвежье поглощение"
+            evening -> "Вечерняя звезда"
+            up && star -> "Падающая звезда"
+            up && p.close < p.open && upper > body && p.close < (prev.open + prev.close) / 2 -> "Завеса из тёмных облаков"
+            else -> ""
         }
-
-        // Reject tiny, noise-like breaks and weak participation.
-        val minBreak = 0.0005
-        val sweepVolumeOk = sweep.volume >= avgVolume * 1.5
-        val confirmVolumeOk = confirm.volume >= avgVolume * 1.1
-        val sweepRange = sweep.high - sweep.low
-        if (sweepRange <= 0.0 || !sweepVolumeOk || !confirmVolumeOk) {
-            return SignalResult("", 0L, "")
-        }
-
-        // Reclaim + follow-through, not just a wick or a doji.
-        val longTrap = liq.dominantIsLong && liq.longPct >= 60.0 &&
-            sweep.low < support * (1.0 - minBreak) &&
-            sweep.close > sweep.low + sweepRange * 0.45 &&
-            confirm.close > support && confirm.close > sweep.close &&
-            confirm.close > confirm.open
-
-        val shortTrap = !liq.dominantIsLong && liq.shortPct >= 60.0 &&
-            sweep.high > resistance * (1.0 + minBreak) &&
-            sweep.close < sweep.high - sweepRange * 0.45 &&
-            confirm.close < resistance && confirm.close < sweep.close &&
-            confirm.close < confirm.open
-
         val type = when {
-            longTrap -> "long"
-            shortTrap -> "short"
+            longName.isNotEmpty() -> "long"
+            shortName.isNotEmpty() -> "short"
             else -> return SignalResult("", 0L, "")
         }
-        val pattern = if (type == "long") "Liquidity Trap: sell-side sweep & reclaim"
-                      else "Liquidity Trap: buy-side sweep & reclaim"
-        // A confirmed trap is the only actionable signal; no weak legacy signals.
-        return SignalResult(type, confirm.time, "strong", pattern)
+        val confirmed = if (type == "long") c.close > c.open && c.close > p.close
+                        else c.close < c.open && c.close < p.close
+        val avgVolume = candles.subList(candles.size - 8, candles.size - 3)
+            .map { it.volume }.average().coerceAtLeast(0.000001)
+        var score = 30
+        if (confirmed) score += 25
+        if (p.volume >= avgVolume * 1.5) score += 15
+        if (c.volume >= avgVolume * 1.3) score += 10
+        if (liq != null && liq.total15m >= liqThreshold &&
+            ((type == "long" && liq.dominantIsLong) ||
+             (type == "short" && !liq.dominantIsLong))) score += 20
+        val strength = when {
+            score >= 85 -> "strong"
+            score >= 70 -> "medium"
+            else -> "weak"
+        }
+        val name = if (type == "long") longName else shortName
+        return SignalResult(type, c.time, strength,
+            "$name · $score/100 · " + if (confirmed) "подтверждён" else "без подтверждения")
     }
 
-
-    /**
-     * Require independent positioning and order-flow evidence before publishing a trap.
-     * OI change is calculated from the latest two 5-minute samples.
-     * Delta is signed buyer-initiated minus seller-initiated trade notional,
-     * normalized by total notional in the recent-trade snapshot.
-     */
+    // Kept for compatibility with existing call sites; a candle pattern does not
+    // require liquidation, OI, or aggressive delta to be displayed.
     fun confirmTrap(
         candidate: SignalResult,
         oiHistory: List<Double>?,
         aggressiveDeltaRatio: Double?
-    ): SignalResult {
-        if (candidate.type.isEmpty() || oiHistory == null ||
-            oiHistory.size < 2 || aggressiveDeltaRatio == null) {
-            return SignalResult("", 0L, "")
-        }
-        val previousOi = oiHistory[oiHistory.size - 2]
-        val currentOi = oiHistory.last()
-        if (previousOi <= 0.0 || currentOi <= 0.0) return SignalResult("", 0L, "")
-        val oiChangePct = (currentOi - previousOi) / previousOi * 100.0
-        // Rising OI indicates fresh positioning into the failed break.
-        // Opposite-side aggressive flow suggests absorption rather than mere exhaustion.
-        if (oiChangePct < 0.15) return SignalResult("", 0L, "")
-        val absorbed = when (candidate.type) {
-            "long" -> aggressiveDeltaRatio <= -0.10
-            "short" -> aggressiveDeltaRatio >= 0.10
-            else -> false
-        }
-        return if (absorbed) candidate.copy(
-            pattern = candidate.pattern + " · OI & trade-flow absorption"
-        ) else SignalResult("", 0L, "")
-    }
+    ): SignalResult = candidate
 
     // ================== Peak forecast ==================
 
