@@ -53,6 +53,40 @@ object NotificationHelper {
         }
     }
 
+    private val zoneAlertCooldown = HashMap<String, Long>()
+
+    fun sendRiskAlert(context: Context, symbol: String, kind: String, message: String) {
+        val prefKey = if (kind == "cluster") "future_cluster" else "cascade"
+        if (!Prefs.notifEnabled(context, prefKey)) return
+        val now = System.currentTimeMillis()
+        val key = "$symbol:$kind:$message"
+        synchronized(zoneAlertCooldown) {
+            if (now - (zoneAlertCooldown[key] ?: 0L) < 30 * 60_000L) return
+            zoneAlertCooldown[key] = now
+            zoneAlertCooldown.entries.removeAll { now - it.value > 2 * 60 * 60_000L }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED) return
+        try {
+            val intent = Intent(context, MainActivity::class.java)
+            val pending = PendingIntent.getActivity(
+                context, symbol.hashCode(), intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                .setContentTitle("$symbol · риск ликвидаций")
+                .setContentText(message)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+                .setContentIntent(pending)
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .build()
+            NotificationManagerCompat.from(context).notify(key.hashCode(), notification)
+        } catch (_: Exception) {}
+    }
+
     fun notificationPriority(symbol: String): Int {
         val type = synchronized(MarketState.notifiedCooldown) {
             MarketState.notifiedType[symbol]
