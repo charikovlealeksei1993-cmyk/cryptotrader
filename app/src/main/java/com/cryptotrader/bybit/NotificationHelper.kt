@@ -22,6 +22,8 @@ object NotificationHelper {
     private const val NOTIFY_COOLDOWN_MS = 60 * 60 * 1000L
     private const val NOTIFIED_TTL = 60 * 1000L
     private const val SIGNAL_NOTIFY_COOLDOWN_MS = 5 * 60 * 1000L
+    private const val LIQUIDATION_ALERT_COOLDOWN_MS = 60 * 60_000L
+    private val liquidationAlertTimes = HashMap<String, Long>()
 
     fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -115,25 +117,39 @@ object NotificationHelper {
             var isLiquidation = false
 
             if (Prefs.notifEnabled(context, "liquidation")) {
-                val liq = MarketState.liqStatsCache[r.symbol]
-                val active = liq != null && liq.total15m >= liqThreshold
-
+                // Recompute the 15-minute sum from actual events, not a possibly stale cache.
+                val events = synchronized(MarketState.liqLock) {
+                    MarketState.liqBuffer[r.symbol]?.toList() ?: emptyList()
+                }
+                val recent = events.filter {
+                    it.time in (now - 15 * 60_000L)..now &&
+                        it.usd.isFinite() && it.usd > 0.0
+                }
+                val total15m = recent.sumOf { it.usd }
+                val hasFreshTrade = recent.any { it.time >= now - 2 * 60_000L }
+                val active = hasFreshTrade && total15m >= liqThreshold
+                val resetBelow = total15m < liqThreshold * 0.7
                 var triggerNow = false
                 synchronized(MarketState.liquidationActiveLock) {
-                    if (active && r.symbol !in MarketState.liquidationActive) {
-                        MarketState.liquidationActive.add(r.symbol)
-                        triggerNow = true
-                    } else if (!active) {
+                    if (resetBelow || !hasFreshTrade) {
                         MarketState.liquidationActive.remove(r.symbol)
                     }
+                    val lastAlert = liquidationAlertTimes[r.symbol] ?: 0L
+                    if (active && r.symbol !in MarketState.liquidationActive &&
+                        now - lastAlert >= LIQUIDATION_ALERT_COOLDOWN_MS) {
+                        MarketState.liquidationActive.add(r.symbol)
+                        liquidationAlertTimes[r.symbol] = now
+                        triggerNow = true
+                    }
                 }
-
-                if (triggerNow && liq != null) {
+                if (triggerNow) {
                     type = "liquidation"
                     isLiquidation = true
-                    val who = if (liq.dominantIsLong) "🐂 лонги" else "🐻 шорты"
-                    val domPct = if (liq.dominantIsLong) liq.longPct else liq.shortPct
-                    reasons.add("💥 Ликвидации ${UiUtils.formatMoney(liq.total15m)} · $who ${"%.0f".format(domPct)}%")
+                    val longUsd = recent.filter { it.isLong }.sumOf { it.usd }
+                    val shortUsd = total15m - longUsd
+                    val who = if (longUsd >= shortUsd) "🐂 лонги" else "🐻 шорты"
+                    val domPct = max(longUsd, shortUsd) / total15m * 100.0
+                    reasons.add("💥 Ликвидации ${UiUtils.formatMoney(total15m)} за 15м · порог ${UiUtils.formatMoney(liqThreshold)} · $who ${"%.0f".format(domPct)}%")
                 }
             }
 
