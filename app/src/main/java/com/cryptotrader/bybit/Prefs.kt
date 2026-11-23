@@ -137,6 +137,12 @@ object Prefs {
     fun setNotifEnabled(c: Context, type: String, v: Boolean) =
         sp(c).edit().putBoolean("notif_$type", v).apply()
 
+    fun signalSoundEnabled(c: Context, tier: String): Boolean =
+        sp(c).getBoolean("signal_sound_$tier", true)
+
+    fun setSignalSoundEnabled(c: Context, tier: String, enabled: Boolean) =
+        sp(c).edit().putBoolean("signal_sound_$tier", enabled).apply()
+
     fun clearAll(c: Context) {
         cachedTheme = null
         sp(c).edit().clear().apply()
