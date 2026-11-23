@@ -118,6 +118,25 @@ class TradeDeltaAnalyzer {
         return up to down
     }
 
+    /**
+     * Closed M1 trade-flow snapshot aligned to the signal confirmation candle.
+     * Never uses trades from after the signal was formed.
+     * Null means insufficient live trade history (e.g. immediately after startup).
+     */
+    fun closedMinuteFlow(symbol: String, candleStartMs: Long): Pair<Double, Double>? {
+        val previousStart = candleStartMs - 60_000L
+        val end = candleStartMs + 60_000L
+        val now = System.currentTimeMillis()
+        if (now < end || now - previousStart > 120_000L) return null
+        val entries = synchronized(_rawLock) { _rawBuffers[symbol]?.toList() ?: return null }
+        val previous = entries.filter { it.time >= previousStart && it.time < candleStartMs }
+        val current = entries.filter { it.time >= candleStartMs && it.time < end }
+        if (previous.isEmpty() || current.isEmpty()) return null
+        fun delta(list: List<TradeEntry>): Double =
+            list.sumOf { if (it.isBuy) it.usd else -it.usd }
+        return delta(current) to (delta(current) - delta(previous))
+    }
+
     fun clear() {
         synchronized(_rawLock) { _rawBuffers.clear() }
         synchronized(_bucketLock) { _buckets.clear() }
