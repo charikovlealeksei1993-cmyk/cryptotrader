@@ -1035,6 +1035,18 @@ class MainActivity : Activity() {
             (r.signalType == "short" && open.isLong)
     }
 
+    private fun cardLiquidations(symbol: String): String {
+        val liq = getCachedLiqStats(symbol) ?: return ""
+        if (liq.total15m <= 0.0) return ""
+        val trend = when (liq.trend) {
+            "rising" -> "растут"
+            "falling" -> "снижаются"
+            else -> "стабильно"
+        }
+        return "Ликвидации 15м: ${UiUtils.formatMoney(liq.total15m)} · " +
+            "LONG ${UiUtils.formatMoney(liq.long15m)} / SHORT ${UiUtils.formatMoney(liq.short15m)} · $trend"
+    }
+
     private fun cardLevels(r: ScanResult): String {
         val open = PaperTrading.openTrades().firstOrNull { it.symbol == r.symbol }
         if (open != null) {
@@ -1070,6 +1082,7 @@ class MainActivity : Activity() {
         if (hasSignal && r.signalPattern.isNotEmpty()) lines.add(r.signalPattern)
         lines.add("Цена: " + "%.4f".format(r.price) + " · 15м: " + "%+.2f".format(r.change15m) + "%")
         if (hasSignal) lines.add("Свеча подтверждения закрыта")
+        if (cardLiquidations(r.symbol).isNotEmpty()) lines.add(cardLiquidations(r.symbol))
         if (hasSignal && cardLevels(r).isNotEmpty()) lines.add(cardLevels(r))
         val open = PaperTrading.openTrades().firstOrNull { it.symbol == r.symbol }
         if (open != null) {
@@ -2417,6 +2430,15 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
             confirmation.setTextColor(Prefs.textDim(this))
             confirmation.textSize = 14f
             row.addView(confirmation)
+        }
+        val liquidationLine = cardLiquidations(r.symbol)
+        if (liquidationLine.isNotEmpty()) {
+            val liquidationView = TextView(this)
+            liquidationView.text = liquidationLine
+            liquidationView.setTextColor(Prefs.textDim(this))
+            liquidationView.textSize = 14f
+            liquidationView.setPadding(0, 8, 0, 0)
+            row.addView(liquidationView)
         }
         if (hasSignal && cardLevels(r).isNotEmpty()) {
             val levels = TextView(this)
