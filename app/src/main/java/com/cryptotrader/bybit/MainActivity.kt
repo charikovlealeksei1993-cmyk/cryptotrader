@@ -2209,7 +2209,10 @@ class MainActivity : Activity() {
             candles, liq, liqThreshold,
             flowDeltaUsd = closedFlow?.first,
             cvdTrendUsd = closedFlow?.second,
-            turnoverAcceleration = turnoverAcceleration
+            turnoverAcceleration = turnoverAcceleration,
+            adaptiveVolumeRatio = if (Prefs.signalTf(this) == "1")
+                tradeDeltaAnalyzer.adaptiveMinuteVolumeRatio(symbol, confirmationTime)
+            else null
         )
         // Candle patterns are independent of liquidation and OI availability.
         val sigResult = trapCandidate
