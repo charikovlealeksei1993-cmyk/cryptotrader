@@ -25,6 +25,12 @@ class TradeDeltaAnalyzer {
     private val _bucketLock = Any()
     private val _buckets = HashMap<String, TreeMap<Long, Bucket>>()
 
+    // Independent M1 notional buckets for adaptive signal-volume analysis.
+    // These do not depend on the user-selected chart volume-bar size.
+    private val minuteLock = Any()
+    private val minuteTurnover = HashMap<String, TreeMap<Long, Double>>()
+    private val minuteKeepMs = 20 * 60_000L
+
     private val BUCKET_MS = 5 * 60 * 1000L
     private val BUCKET_KEEP_MS = 65 * 60 * 1000L
 
@@ -151,8 +157,29 @@ class TradeDeltaAnalyzer {
         return if (prevUsd > 0.0) curUsd / prevUsd else null
     }
 
+    /**
+     * Closed-minute notional relative to an adaptive baseline of earlier minutes.
+     * Requires at least five observed earlier minutes. No synthetic zero-volume
+     * history is introduced on startup or after a socket disconnect.
+     */
+    fun adaptiveMinuteVolumeRatio(symbol: String, candleStartMs: Long): Double? {
+        val now = System.currentTimeMillis()
+        if (now < candleStartMs + 60_000L || now - candleStartMs > 20 * 60_000L) return null
+        val snapshot = synchronized(minuteLock) { minuteTurnover[symbol]?.toMap() ?: return null }
+        val current = snapshot[candleStartMs] ?: return null
+        val previous = snapshot.filterKeys {
+            it >= candleStartMs - 15 * 60_000L && it < candleStartMs
+        }.values
+        if (previous.size < 5) return null
+        val baseline = previous.sorted().let { sorted ->
+            sorted[sorted.size / 2]
+        }
+        return if (baseline > 0.0) current / baseline else null
+    }
+
     fun clear() {
         synchronized(_rawLock) { _rawBuffers.clear() }
         synchronized(_bucketLock) { _buckets.clear() }
+        synchronized(minuteLock) { minuteTurnover.clear() }
     }
 }
