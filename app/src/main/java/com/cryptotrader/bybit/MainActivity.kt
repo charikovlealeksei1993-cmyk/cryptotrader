@@ -1415,6 +1415,9 @@ class MainActivity : Activity() {
             "⚠️ Цена рядом с оценочным кластером ${near.side} ${near.leverage}×")
     }
 
+    private val cascadeStages = HashMap<String, Int>()
+    private val cascadeWeakChecks = HashMap<String, Int>()
+
     private fun checkCascadeAlert(symbol: String) {
         val now = System.currentTimeMillis()
         if (now - (cascadeLastCheck[symbol] ?: 0L) < 60_000L) return
@@ -1422,23 +1425,73 @@ class MainActivity : Activity() {
         val events = synchronized(MarketState.liqLock) {
             MarketState.liqBuffer[symbol]?.toList() ?: emptyList()
         }
-        val recent = events.filter { it.time >= now - 3 * 60_000L && it.usd > 0.0 }
+        val recent = events.filter { it.time >= now - 180_000L && it.usd > 0.0 }
         val previous = events.filter {
-            it.time in (now - 6 * 60_000L) until (now - 3 * 60_000L) && it.usd > 0.0
+            it.time >= now - 360_000L && it.time < now - 180_000L && it.usd > 0.0
         }
         val recentUsd = recent.sumOf { it.usd }
         val previousUsd = previous.sumOf { it.usd }
         val active = recent.size >= 3 && recentUsd >= 50_000.0 &&
             recentUsd > previousUsd * 1.5
-        val wasActive = cascadeAlertState[symbol] ?: false
-        if (active && !wasActive) {
-            cascadeAlertState[symbol] = true
+        val stage = cascadeStages[symbol] ?: 0
+        if (active && stage == 0) {
+            cascadeStages[symbol] = 1
+            cascadeWeakChecks[symbol] = 0
             NotificationHelper.sendRiskAlert(this, symbol, "cascade",
                 "💥 Возможное начало каскада: рост реальных ликвидаций за 3 минуты")
-        } else if (wasActive && recentUsd < previousUsd * 0.5) {
-            cascadeAlertState[symbol] = false
-            NotificationHelper.sendRiskAlert(this, symbol, "cascade",
-                "📉 Каскад, вероятно, затухает: объём ликвидаций снизился")
+            return
+        }
+        if (stage == 0) return
+
+        // Compare direction-specific liquidation pressure, not just total volume.
+        val longDominant = previous.filter { it.isLong }.sumOf { it.usd } >=
+            previous.filter { !it.isLong }.sumOf { it.usd }
+        val previousSide = previous.filter { it.isLong == longDominant }.sumOf { it.usd }
+        val recentSide = recent.filter { it.isLong == longDominant }.sumOf { it.usd }
+        val liqSlowing = previousSide > 0.0 && recentSide <= previousSide * 0.75
+        val liqFading = previousSide > 0.0 && recentSide <= previousSide * 0.50
+
+        // A fall in liquidation volume alone is insufficient to declare a reversal.
+        // M1 candles are used only if the chart currently has fresh, matching data.
+        val priceSlowing: Boolean? = if (currentSymbol == symbol && currentTf == "1") {
+            val bars = allCandles.filter { it.time >= now - 420_000L &&
+                it.time + 60_000L <= now }.takeLast(6)
+            if (bars.size < 6) null else {
+                val olderMove = kotlin.math.abs(bars[2].close - bars[0].open)
+                val newerMove = kotlin.math.abs(bars[5].close - bars[3].open)
+                olderMove > 0.0 && newerMove <= olderMove * 0.75
+            }
+        } else null
+        val flow = tradeDeltaAnalyzer.cascadeFlowWindows(symbol, now)
+        val flowSlowing: Boolean? = flow?.let {
+            val oldDirectional = if (longDominant) -it.first else it.first
+            val newDirectional = if (longDominant) -it.second else it.second
+            oldDirectional > 0.0 && newDirectional <= oldDirectional * 0.75
+        }
+        val confirmations = listOf(priceSlowing, flowSlowing).count { it == true }
+        val weak = liqSlowing && confirmations >= 1
+        val consecutive = if (weak) (cascadeWeakChecks[symbol] ?: 0) + 1 else 0
+        cascadeWeakChecks[symbol] = consecutive
+
+        val nextStage = when {
+            liqFading && confirmations == 2 && consecutive >= 3 -> 3
+            liqFading && confirmations >= 1 && consecutive >= 2 -> 2
+            weak -> 1
+            else -> stage
+        }
+        if (nextStage > stage) {
+            cascadeStages[symbol] = nextStage
+            val message = when (nextStage) {
+                1 -> "📉 Каскад замедляется: ликвидации и рыночный импульс ослабевают"
+                2 -> "📉 Каскад, вероятно, затухает: несколько проверок подтвердили ослабление"
+                else -> "✅ Каскад, вероятно, завершён: ликвидации, цена и поток сделок ослабли"
+            }
+            NotificationHelper.sendRiskAlert(this, symbol, "cascade", message)
+        }
+        // Reset after a quiet period so a new independent burst can be detected.
+        if (recentUsd < 1_000.0 && previousUsd < 1_000.0) {
+            cascadeStages.remove(symbol)
+            cascadeWeakChecks.remove(symbol)
         }
     }
 
