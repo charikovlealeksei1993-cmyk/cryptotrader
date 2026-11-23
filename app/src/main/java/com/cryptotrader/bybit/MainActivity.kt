@@ -1883,7 +1883,7 @@ class MainActivity : Activity() {
                             try {
                                 val candles = BybitApi.fetchKlines(sym, Prefs.signalTf(this), 90).reversed()
                                 val realTurn24 = turnoverMap[sym] ?: 0.0
-                                val ratio = BybitApi.fetchLongShortRatio(sym)
+                                // Crowd ratios are no longer fetched for signal cards.
                                 val oiHist = BybitApi.fetchOiHistory(sym, 9)
                                 val fundingInfo = BybitApi.fetchFundingInfo(sym)
                                 val funding = fundingInfo?.rate
@@ -1912,9 +1912,6 @@ class MainActivity : Activity() {
                                     oiLatest to oiChg
                                 } else null
 
-                                val longRatio = ratio?.first ?: 0.0
-                                val longRatioChange = computeLongRatioChange(sym, longRatio)
-                                updateLongRatioHistory(sym, longRatio)
 
                                 val oiChange = oiPair?.second ?: 0.0
                                 if (oiPair != null) updateOiTrend(sym, oiChange)
@@ -1922,11 +1919,11 @@ class MainActivity : Activity() {
 
                                 val res = scanSymbol(
                                     sym, candles, realTurn24,
-                                    longRatio, ratio?.second ?: 0.0,
+                                    0.0, 0.0,
                                     forceInclude = (sym in pinnedSet) || (sym in hotSet),
                                     openInterest = oiPair?.first ?: 0.0,
                                     openInterestChange = oiChange,
-                                    longRatioChange = longRatioChange,
+                                    longRatioChange = 0.0,
                                     oiTrend = oiTrend,
                                     oiHistory = oiHist,
                                     deltaBuckets = tradeDeltaAnalyzer.getDeltaBuckets(sym, (Prefs.accMinutes(this) / 5).coerceAtLeast(3)),
@@ -2387,8 +2384,6 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
             SignalDetector.detectMacroAccumulation(m15Candles, oi15Hist, delta15Buckets, Prefs.accHours(this))
         } else null
 
-        val obInfo = synchronized(MarketState.obLock) { MarketState.obInfos[symbol] }
-
         val cvd1h = tradeDeltaAnalyzer.getCvd(symbol, 60)
         val burstThresh = Prefs.deltaBurstThreshold(this)
         val burstsPair = tradeDeltaAnalyzer.getBursts(symbol, 60, burstThresh)
@@ -2408,10 +2403,10 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
             peakHigh = peak.high,
             peakRemainPct = peak.remainPct,
             peakConfident = peak.confident,
-            bidWallPrice = obInfo?.bidWallPrice ?: 0.0,
-            bidWallUsd = obInfo?.bidWallUsd ?: 0.0,
-            askWallPrice = obInfo?.askWallPrice ?: 0.0,
-            askWallUsd = obInfo?.askWallUsd ?: 0.0,
+            bidWallPrice = 0.0,
+            bidWallUsd = 0.0,
+            askWallPrice = 0.0,
+            askWallUsd = 0.0,
             deltaPct1m = deltaPct1m,
             deltaUsd1m = deltaUsd1m,
             realDeltaUsd = 0.0,
