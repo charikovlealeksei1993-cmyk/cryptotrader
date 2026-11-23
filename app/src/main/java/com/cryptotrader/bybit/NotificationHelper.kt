@@ -118,7 +118,7 @@ object NotificationHelper {
                     type = "volume"
                     reasons.add("📈 Аномальный объём ×${"%.1f".format(r.volRatio)}")
                 }
-                if (r.turnover1m >= 200_000.0) {
+                if (Prefs.notifEnabled(context, "turnover") && r.turnover1m >= 200_000.0) {
                     if (type.isEmpty()) type = "volume"
                     reasons.add("💰 Оборот ${UiUtils.formatMoney(r.turnover1m)} за минуту")
                 }
