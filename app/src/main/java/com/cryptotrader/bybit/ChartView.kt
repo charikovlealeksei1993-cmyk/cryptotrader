@@ -385,12 +385,25 @@ class ChartView(context: Context) : View(context) {
             }
             canvas.drawRect(pL, yy - 7f, w - pR, yy + 7f, band)
             val caption = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = base
-                textSize = 17f
-                typeface = Typeface.DEFAULT_BOLD
+                color = Color.WHITE
+                textSize = 30f * resources.displayMetrics.scaledDensity.coerceIn(1f, 1.4f)
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 textAlign = Paint.Align.RIGHT
             }
-            canvas.drawText("~${zone.side} ${zone.leverage}×", w - pR - 4f, yy - 10f, caption)
+            val label = "~${zone.side} ${zone.leverage}×"
+            val labelX = w - pR - 8f
+            val labelY = (yy - 15f).coerceAtLeast(candleTop + caption.textSize + 7f)
+                .coerceAtMost(candleTop + candleH - 8f)
+            val labelWidth = caption.measureText(label)
+            val labelBg = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.argb(225, 16, 18, 25)
+                style = Paint.Style.FILL
+            }
+            canvas.drawRoundRect(
+                labelX - labelWidth - 12f, labelY - caption.textSize - 5f,
+                labelX + 8f, labelY + 8f, 7f, 7f, labelBg
+            )
+            canvas.drawText(label, labelX, labelY, caption)
         }
 
         // Отрисовка зоны накопления
