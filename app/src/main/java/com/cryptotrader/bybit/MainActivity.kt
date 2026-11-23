@@ -867,6 +867,12 @@ class MainActivity : Activity() {
             obInfo?.askWallPrice ?: 0.0, obInfo?.askWallUsd ?: 0.0
         )
         chartView.setLiqClusters(computeLiqClusters(currentSymbol))
+        val currentOiChange = scanResults.firstOrNull { it.symbol == currentSymbol }?.openInterestChange ?: 0.0
+        chartView.setFutureLiqZones(
+            if (Prefs.futureLiquidationsEnabled(this))
+                estimateFutureLiqZones(candles, currentOiChange)
+            else emptyList()
+        )
                         val acc2 = scanResults.firstOrNull { it.symbol == currentSymbol }?.accumulation
                         chartView.setAccumulationZone(acc2?.priceLow ?: 0.0, acc2?.priceHigh ?: 0.0)
         val acc = scanResults.firstOrNull { it.symbol == currentSymbol }?.accumulation
@@ -1578,6 +1584,51 @@ class MainActivity : Activity() {
     }
 
     private fun getCachedLiqStats(symbol: String): LiqStats? = MarketState.liqStatsCache[symbol]
+    // First-pass relative risk model. OI change alone cannot reveal entry prices or sides.
+    // Use recent candle turnover as a proxy for entry concentration; never label it as USD liquidations.
+    private fun estimateFutureLiqZones(candles: List<Candle>, oiChangePct: Double): List<FutureLiqZone> {
+        if (candles.size < 8 || !oiChangePct.isFinite() || oiChangePct <= 0.0) return emptyList()
+        val recent = candles.takeLast(32)
+        val currentPrice = recent.last().close
+        if (currentPrice <= 0.0) return emptyList()
+        val weights = recent.map { (it.volume * it.close).coerceAtLeast(0.0) }
+        val totalWeight = weights.sum()
+        if (totalWeight <= 0.0) return emptyList()
+        val candidates = ArrayList<FutureLiqZone>()
+        for (i in recent.indices) {
+            val candle = recent[i]
+            val entry = (candle.open + candle.close + candle.high + candle.low) / 4.0
+            if (entry <= 0.0) continue
+            val weight = weights[i] / totalWeight
+            // A heuristic directional split; taker volume is not a position-side ledger.
+            val longShare = if (candle.close >= candle.open) 0.6 else 0.4
+            for (leverage in listOf(10, 25, 50, 100)) {
+                val distance = 1.0 / leverage
+                val longPrice = entry * (1.0 - distance)
+                val shortPrice = entry * (1.0 + distance)
+                if (longPrice < currentPrice)
+                    candidates.add(FutureLiqZone(longPrice, "LONG", leverage, weight * longShare))
+                if (shortPrice > currentPrice)
+                    candidates.add(FutureLiqZone(shortPrice, "SHORT", leverage, weight * (1.0 - longShare)))
+            }
+        }
+        // Aggregate nearby prices; return at most three strongest bands on either side.
+        val bin = currentPrice * 0.002
+        return candidates.groupBy { it.side to kotlin.math.round(it.price / bin).toLong() }
+            .map { (key, group) ->
+                val total = group.sumOf { it.strength }
+                val price = group.sumOf { it.price * it.strength } / total
+                FutureLiqZone(price, key.first, group.maxByOrNull { it.strength }!!.leverage, total)
+            }
+            .groupBy { it.side }
+            .flatMap { (_, group) ->
+                val maxStrength = group.maxOf { it.strength }.coerceAtLeast(0.000001)
+                group.sortedByDescending { it.strength }.take(3).map {
+                    it.copy(strength = (it.strength / maxStrength).coerceIn(0.0, 1.0))
+                }
+            }
+    }
+
     private fun computeLiqClusters(symbol: String): List<LiqCluster> {
         val events = synchronized(MarketState.liqLock) {
             MarketState.liqBuffer[symbol]?.toList() ?: emptyList()
