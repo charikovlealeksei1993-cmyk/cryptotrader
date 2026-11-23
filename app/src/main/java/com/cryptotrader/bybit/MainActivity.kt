@@ -630,12 +630,6 @@ class MainActivity : Activity() {
         else -> "⚪"
     }
 
-    private fun dirForOb(imb: Double): String = when {
-        imb > 0.3 -> "🟢"
-        imb < -0.3 -> "🔴"
-        else -> "⚪"
-    }
-
     private fun dirForAcc(type: String): String = when (type) {
         "long" -> "🟢"
         "short" -> "🔴"
@@ -2699,23 +2693,6 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
             row.addView(frLine)
         }
 
-        val lsLine = TextView(this)
-        if (r.longRatio > 0 || r.shortRatio > 0) {
-            val longPct = r.longRatio * 100
-            val shortPct = r.shortRatio * 100
-            val who = if (r.longRatio > r.shortRatio) "🟢 лонги" else "🔴 шорты"
-            lsLine.text = "📊 Лонги ${"%.0f".format(longPct)}% · Шорты ${"%.0f".format(shortPct)}% · $who"
-            lsLine.setTextColor(
-                if (r.longRatio > r.shortRatio) Color.rgb(120, 200, 140)
-                else Color.rgb(220, 120, 120)
-            )
-        } else {
-            lsLine.text = "📊 Лонги/Шорты: нет данных"
-            lsLine.setTextColor(Prefs.textDim(this))
-        }
-        lsLine.textSize = 18f
-        row.addView(lsLine)
-
         if (liq != null && liq.total15m >= liqThreshold) {
             val direction = if (liq.dominantIsLong) "🐂 лонги" else "🐻 шорты"
             val domPct = if (liq.dominantIsLong) liq.longPct else liq.shortPct
@@ -2855,58 +2832,6 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
                     padTop = 2
                 ))
             }
-        }
-
-        val obInfo = synchronized(MarketState.obLock) { MarketState.obInfos[r.symbol] }
-        if (obInfo != null) {
-            val imb = obInfo.imbalance
-            val (icon, color, label) = when {
-                imb >= 0.30 -> Triple("🟢", Color.rgb(120, 200, 140), "покупатели")
-                imb <= -0.30 -> Triple("🔴", Color.rgb(220, 120, 120), "продавцы")
-                else -> Triple("⚪", Prefs.textDim(this), "баланс")
-            }
-            val sign = if (imb >= 0) "+" else ""
-            row.addView(makeDirRow(
-                "⚖️ Стакан: $icon $sign${"%.2f".format(imb)} ($label)",
-                dirForOb(imb),
-                color,
-                17f
-            ))
-
-            if ((obInfo.bidWallPrice > 0 || obInfo.askWallPrice > 0) && (obInfo.bidWallUsd >= 1000.0 || obInfo.askWallUsd >= 1000.0)) {
-                val wallLine = TextView(this)
-                val bidStr = if (obInfo.bidWallPrice > 0)
-                    "🟢 ${"%.4f".format(obInfo.bidWallPrice)} (${UiUtils.formatMoney(obInfo.bidWallUsd)})"
-                else "—"
-                val askStr = if (obInfo.askWallPrice > 0)
-                    "🔴 ${"%.4f".format(obInfo.askWallPrice)} (${UiUtils.formatMoney(obInfo.askWallUsd)})"
-                else "—"
-                val bidWins = obInfo.bidWallUsd > obInfo.askWallUsd
-                val askWins = obInfo.askWallUsd > obInfo.bidWallUsd
-                val bidColor = if (bidWins) Color.rgb(120, 255, 150) else Prefs.textDim(this)
-                val askColor = if (askWins) Color.rgb(255, 150, 150) else Prefs.textDim(this)
-                val sp = android.text.SpannableStringBuilder()
-                sp.append("   Bid: ")
-                val bidStart = sp.length
-                sp.append(bidStr)
-                sp.setSpan(android.text.style.ForegroundColorSpan(bidColor), bidStart, sp.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                sp.append("  ·  Ask: ")
-                val askStart = sp.length
-                sp.append(askStr)
-                sp.setSpan(android.text.style.ForegroundColorSpan(askColor), askStart, sp.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                wallLine.text = sp
-                wallLine.setTextColor(Prefs.textDim(this))
-                wallLine.textSize = 15f
-                wallLine.setPadding(0, 2, 0, 0)
-                row.addView(wallLine)
-            }
-        } else {
-            row.addView(makeDirRow(
-                "⚖️ Стакан: собираю данные...",
-                "⚪",
-                Prefs.textDim(this),
-                17f
-            ))
         }
 
         r.accumulation?.let { acc ->
