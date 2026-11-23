@@ -99,6 +99,10 @@ class MainActivity : Activity() {
 
 
     private var tradeSocket: TradeSocket? = null
+    private var volumeAggregator: VolumeBarAggregator? = null
+    private var activeChartType = ""
+    private var activeVolumeThreshold = 0.0
+    private var lastVolumeRender = 0L
     private var lastChartUpdate = 0L
     private val chartUpdateInterval = 50L
 
@@ -320,6 +324,13 @@ class MainActivity : Activity() {
             startTickerSocket(socketPool)
         }
         updateBalanceLabel()
+        if (isChartMode) {
+            val type = Prefs.chartType(this)
+            val threshold = Prefs.volumeBarUsdt(this)
+            if (type != activeChartType || (type == "volume" && threshold != activeVolumeThreshold)) {
+                openChart(currentSymbol)
+            }
+        }
     }
 
     override fun onPause() {
@@ -834,6 +845,7 @@ class MainActivity : Activity() {
     }
 
     private fun applyChartData(candles: List<Candle>, ls: List<LsPoint>) {
+        if (Prefs.chartType(this) == "volume") return
         allCandles = candles
         visibleCount = min(100, candles.size)
         offset = max(0, candles.size - visibleCount + visibleCount / 5)
@@ -2014,7 +2026,26 @@ class MainActivity : Activity() {
 
     private fun startSocket(symbol: String) {
         stopSocket()
-        tradeSocket = TradeSocket(symbol) { time, price, size, _ ->
+        if (Prefs.chartType(this) == "volume") {
+            val threshold = Prefs.volumeBarUsdt(this)
+            volumeAggregator = VolumeBarAggregator(threshold)
+            activeVolumeThreshold = threshold
+        } else volumeAggregator = null
+        tradeSocket = TradeSocket(symbol) { time, price, size, isBuy ->
+            val aggregator = volumeAggregator
+            if (aggregator != null && Prefs.chartType(this) == "volume" && symbol == currentSymbol) {
+                aggregator.addTrade(time, price, size, isBuy)
+                val now = System.currentTimeMillis()
+                if (now - lastVolumeRender >= 250L) {
+                    lastVolumeRender = now
+                    Handler(Looper.getMainLooper()).post {
+                        if (!isDestroyed && isChartMode && Prefs.chartType(this) == "volume" &&
+                            symbol == currentSymbol && volumeAggregator === aggregator) {
+                            renderVolumeBars(aggregator)
+                        }
+                    }
+                }
+            }
             synchronized(MarketState.liveLock) {
                 val buf = MarketState.liveBuffer.getOrPut(symbol) { ArrayList() }
                 val lastTime = buf.lastOrNull()?.time ?: 0L
@@ -2036,7 +2067,34 @@ class MainActivity : Activity() {
     private fun stopSocket() {
         try { tradeSocket?.close() } catch (_: Exception) {}
         tradeSocket = null
+        volumeAggregator = null
     }
+
+    private fun renderVolumeBars(aggregator: VolumeBarAggregator) {
+        val bars = aggregator.snapshot()
+        if (bars.isEmpty()) return
+        val candles = bars.map {
+            Candle(it.startTime, it.open, it.high, it.low, it.close, it.volumeUsdt)
+        }
+        val wasAtRight = (offset + visibleCount) >= allCandles.size
+        allCandles = candles
+        visibleCount = visibleCount.coerceIn(1, candles.size)
+        if (wasAtRight) offset = max(0, candles.size - visibleCount)
+        else offset = offset.coerceIn(0, max(0, candles.size - visibleCount))
+        chartView.setData(candles, offset, visibleCount, "candles", Prefs.theme(this))
+        chartView.setLiqClusters(computeLiqClusters(currentSymbol))
+        val latest = bars.last()
+        chartTitle.text = currentSymbol + " · Объём " + formatVolumeBarThreshold(activeVolumeThreshold) +
+            " · Δ " + formatVolumeBarThreshold(kotlin.math.abs(latest.deltaUsdt))
+        chartTitle.setTextColor(Prefs.textDim(this))
+    }
+
+    private fun formatVolumeBarThreshold(value: Double): String =
+        when {
+            value >= 1_000_000.0 -> "%.1fM".format(java.util.Locale.US, value / 1_000_000.0)
+            value >= 1_000.0 -> "%.0fK".format(java.util.Locale.US, value / 1_000.0)
+            else -> "%.0f".format(java.util.Locale.US, value)
+        }
 
     // ================== Per-symbol scan ==================
 
@@ -2929,6 +2987,17 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
         chartTitle.text = "$currentSymbol · $currentTfLabel"
         chartTitle.setTextColor(Prefs.textDim(this))
         applyOrientation()
+        activeChartType = Prefs.chartType(this)
+        if (activeChartType == "volume") {
+            chartLoading = false
+            allCandles = emptyList()
+            offset = 0
+            visibleCount = 100
+            chartView.setData(emptyList(), 0, visibleCount, "candles", Prefs.theme(this))
+            chartTitle.text = symbol + " · Объёмные (накопление сделок...)"
+            startSocket(symbol)
+            return
+        }
 
         val cacheKey = "$currentSymbol|$currentTf"
         val cached = synchronized(chartCacheLock) { chartCache[cacheKey] }
@@ -2993,7 +3062,7 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
     }
 
     private fun refreshChart() {
-        if (!isChartMode) return
+        if (!isChartMode || Prefs.chartType(this) == "volume") return
         executor.execute {
             try {
                 val limit = Prefs.historyForTf(this, currentTf)
@@ -3015,7 +3084,7 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
                 if (candles.isEmpty()) return@execute
 
                 Handler(Looper.getMainLooper()).post {
-                    if (isDestroyed) return@post
+                    if (isDestroyed || Prefs.chartType(this) == "volume") return@post
                     val wasAtRight = (offset + visibleCount) >= allCandles.size
                     allCandles = candles
                     offset = if (wasAtRight) max(0, candles.size - visibleCount)
