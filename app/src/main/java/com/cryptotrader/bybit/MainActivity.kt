@@ -1035,6 +1035,20 @@ class MainActivity : Activity() {
             (r.signalType == "short" && open.isLong)
     }
 
+    private fun cardCascadeStatus(symbol: String): String {
+        val stage = cascadeStages[symbol] ?: return ""
+        val checkedAt = cascadeLastCheck[symbol] ?: return ""
+        // An old stage must not be presented as a live market condition.
+        if (System.currentTimeMillis() - checkedAt > 7 * 60_000L) return ""
+        return when (stage) {
+            1 -> "💥 Каскад: активен"
+            2 -> "📉 Каскад: замедляется"
+            3 -> "📉 Каскад: вероятно затухает"
+            4 -> "✅ Каскад: вероятно завершён"
+            else -> ""
+        }
+    }
+
     private fun cardLiquidations(symbol: String): String {
         val liq = getCachedLiqStats(symbol) ?: return ""
         if (liq.total15m <= 0.0) return ""
@@ -1083,6 +1097,7 @@ class MainActivity : Activity() {
         lines.add("Цена: " + "%.4f".format(r.price) + " · 15м: " + "%+.2f".format(r.change15m) + "%")
         if (hasSignal) lines.add("Свеча подтверждения закрыта")
         if (cardLiquidations(r.symbol).isNotEmpty()) lines.add(cardLiquidations(r.symbol))
+        if (cardCascadeStatus(r.symbol).isNotEmpty()) lines.add(cardCascadeStatus(r.symbol))
         if (hasSignal && cardLevels(r).isNotEmpty()) lines.add(cardLevels(r))
         val open = PaperTrading.openTrades().firstOrNull { it.symbol == r.symbol }
         if (open != null) {
@@ -2492,6 +2507,15 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
             liquidationView.textSize = 14f
             liquidationView.setPadding(0, 8, 0, 0)
             row.addView(liquidationView)
+        }
+        val cascadeLine = cardCascadeStatus(r.symbol)
+        if (cascadeLine.isNotEmpty()) {
+            val cascadeView = TextView(this)
+            cascadeView.text = cascadeLine
+            cascadeView.setTextColor(Prefs.text(this))
+            cascadeView.textSize = 14f
+            cascadeView.setPadding(0, 6, 0, 0)
+            row.addView(cascadeView)
         }
         if (hasSignal && cardLevels(r).isNotEmpty()) {
             val levels = TextView(this)
