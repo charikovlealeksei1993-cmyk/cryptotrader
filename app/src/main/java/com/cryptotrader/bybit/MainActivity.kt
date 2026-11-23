@@ -2635,34 +2635,28 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
         return container
     }
 
+    // Paper robot trades only fresh, strong confirmed signals, not liquidation phases.
     private fun tryAutoTrade(r: ScanResult, liq: LiqStats?, liqThreshold: Double) {
         if (!Prefs.autoTradingEnabled(this)) return
-        if (liq == null) return
-        if (liq.total15m < liqThreshold) return
-        val enterAtStart = Prefs.autoEnterAtStart(this)
-        if (enterAtStart) {
-            if (liq.trend != "rising") return
-        } else {
-            if (liq.trend == "rising") return
-        }
-        if (r.price <= 0) return
+        if (r.signalType != "long" && r.signalType != "short") return
+        if (r.signalStrength != "strong") return
+        if (r.price <= 0.0 || r.signalCandleTime <= 0L) return
+        val age = System.currentTimeMillis() - r.signalCandleTime
+        if (age < 0L || age > 5 * 60_000L) return
         if (PaperTrading.hasOpenFor(r.symbol)) return
 
-        val autoWith = Prefs.autoDirectionWith(this)
-        val isLong: Boolean = when (r.signalType) {
-            "long" -> true
-            "short" -> false
-            else -> if (autoWith) liq.dominantIsLong else !liq.dominantIsLong
+        // Do not reopen the same signal after TP/SL, including after app restart.
+        val alreadyTraded = PaperTrading.trades().any { t ->
+            t.isAuto && t.symbol == r.symbol &&
+                t.entryTime >= r.signalCandleTime &&
+                t.entryTime - r.signalCandleTime <= 5 * 60_000L
         }
-
-        val baseCtx = buildContextSnapshot(r)
-        val ctx = if (r.signalType.isEmpty()) {
-            baseCtx.copy(signalPattern = if (autoWith) "AUTO_WITH" else "AUTO_AGAINST")
-        } else baseCtx
+        if (alreadyTraded) return
 
         val size = Prefs.paperTradeSize(this)
+        val ctx = buildContextSnapshot(r)
         PaperTrading.openTrade(
-            this, r.symbol, isLong, r.price, size,
+            this, r.symbol, r.signalType == "long", r.price, size,
             ctx, isAuto = true
         )
     }
