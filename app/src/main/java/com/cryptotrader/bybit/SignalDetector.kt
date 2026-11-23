@@ -72,11 +72,13 @@ object SignalDetector {
         if (p.volume >= avgVolume * 1.5) score += 15
         if (c.volume >= avgVolume * 1.3) score += 10
         val directionalDelta = if (type == "long") flowDeltaUsd else flowDeltaUsd?.let { -it }
-        if (directionalDelta != null && directionalDelta > 0.0) score += 5
         val directionalCvd = if (type == "long") cvdTrendUsd else cvdTrendUsd?.let { -it }
-        if (directionalCvd != null && directionalCvd > 0.0) score += 5
-        if (turnoverAcceleration != null && turnoverAcceleration >= 2.0) score += 5
-        if (adaptiveVolumeRatio != null && adaptiveVolumeRatio >= 1.8) score += 5
+        // Delta and CVD derive from the same trade stream: one combined flow vote.
+        if ((directionalDelta ?: 0.0) > 0.0 && (directionalCvd ?: 0.0) > 0.0) score += 10
+        else if ((directionalDelta ?: 0.0) > 0.0 || (directionalCvd ?: 0.0) > 0.0) score += 5
+        // Activity speed and adaptive notional volume are correlated; cap their vote.
+        if ((turnoverAcceleration ?: 0.0) >= 2.0 ||
+            (adaptiveVolumeRatio ?: 0.0) >= 1.8) score += 10
         if (liq != null && liq.total15m >= liqThreshold &&
             ((type == "long" && liq.dominantIsLong) ||
              (type == "short" && !liq.dominantIsLong))) score += 20
@@ -84,6 +86,7 @@ object SignalDetector {
         val strength = when {
             score >= 85 -> "strong"
             score >= 70 -> "medium"
+            score >= 50 -> "weak"
             else -> "weak"
         }
         val name = if (type == "long") longName else shortName
