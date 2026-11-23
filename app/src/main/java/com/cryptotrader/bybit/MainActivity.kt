@@ -2470,386 +2470,85 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
         return if (esc) "$base 🔥" else base
     }
 
+    // Signal-first card: show the decision, not raw market telemetry.
     private fun makeScanRow(r: ScanResult): View {
         val row = LinearLayout(this)
         row.orientation = LinearLayout.VERTICAL
-        val isPinned = synchronized(MarketState.pinnedLock) { r.symbol in MarketState.pinnedSymbols }
-        val notifPriority = NotificationHelper.notificationPriority(r.symbol)
-
-        val liq = getCachedLiqStats(r.symbol)
-        val liqThreshold = Prefs.liqThreshold(this)
-        val liqBg: Int? = when {
-            liq == null -> null
-            liq.total15m >= liqThreshold -> if (Prefs.theme(this) == "dark") Color.rgb(120, 40, 40) else Color.rgb(255, 200, 200)
-            else -> null
-        }
-        val notifBg: Int? = when (notifPriority) {
-            3 -> if (Prefs.theme(this) == "dark") Color.rgb(100, 20, 20) else Color.rgb(255, 190, 190)
-            2 -> if (Prefs.theme(this) == "dark") Color.rgb(80, 70, 20) else Color.rgb(255, 240, 180)
-            1 -> if (Prefs.theme(this) == "dark") Color.rgb(20, 60, 80) else Color.rgb(200, 230, 255)
-            else -> null
-        }
-        when {
-            notifBg != null -> row.setBackgroundColor(notifBg)
-            liqBg != null -> row.setBackgroundColor(liqBg)
-            r.score >= 3 -> row.setBackgroundColor(Prefs.hotRow(this))
-            else -> row.setBackgroundColor(Prefs.row(this))
-        }
-   row.setPadding(24, 20, 24, 20)
+        row.setBackgroundColor(Prefs.row(this))
+        row.setPadding(24, 20, 24, 20)
         val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         lp.setMargins(8, 6, 8, 6)
         row.layoutParams = lp
 
-        r.accumulation?.let { acc ->
-            if (acc.level.isNotEmpty()) {
-                val accEmoji = when (acc.level) { "strong" -> "🔥"; "medium" -> "🟢"; else -> "🟡" }
-                val accDir = if (acc.type == "long") "В ЛОНГ" else "В ШОРТ"
-                val accColor = when (acc.level) { "strong" -> Color.rgb(200, 60, 20); "medium" -> Color.rgb(30, 120, 60); else -> Color.rgb(140, 110, 20) }
-                row.addView(makeSignalBadge("$accEmoji НАКОПЛЕНИЕ $accDir", accColor))
-            }
+        val pinned = synchronized(MarketState.pinnedLock) { r.symbol in MarketState.pinnedSymbols }
+        val header = LinearLayout(this)
+        header.orientation = LinearLayout.HORIZONTAL
+        header.gravity = Gravity.CENTER_VERTICAL
+        val symbol = TextView(this)
+        symbol.text = r.symbol
+        symbol.textSize = 21f
+        symbol.setTypeface(null, Typeface.BOLD)
+        symbol.setTextColor(Prefs.text(this))
+        symbol.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        header.addView(symbol)
+        val copy = TextView(this)
+        copy.text = "📋"
+        copy.textSize = 20f
+        copy.setPadding(12, 0, 0, 0)
+        copy.setOnClickListener { copyToClipboard(r) }
+        header.addView(copy)
+        val pin = TextView(this)
+        pin.text = if (pinned) "📍" else "📌"
+        pin.textSize = 22f
+        pin.setPadding(12, 0, 0, 0)
+        pin.setOnClickListener { togglePin(r.symbol) }
+        header.addView(pin)
+        row.addView(header)
+
+        val hasSignal = r.signalType == "long" || r.signalType == "short"
+        val strong = r.signalStrength == "strong"
+        val direction = if (r.signalType == "long") "LONG" else "SHORT"
+        val status = when {
+            !hasSignal -> "⏳ НЕТ ПОДТВЕРЖДЁННОГО СИГНАЛА"
+            strong -> "✅ СИГНАЛ $direction"
+            else -> "🟡 КАНДИДАТ $direction · ожидание усиления"
+        }
+        val statusColor = when {
+            !hasSignal -> Prefs.textDim(this)
+            strong -> Color.rgb(30, 120, 60)
+            else -> Color.rgb(160, 120, 30)
+        }
+        val statusLine = TextView(this)
+        statusLine.text = status
+        statusLine.setTextColor(statusColor)
+        statusLine.setTypeface(null, Typeface.BOLD)
+        statusLine.textSize = 17f
+        statusLine.setPadding(0, 8, 0, 0)
+        row.addView(statusLine)
+
+        if (hasSignal && r.signalPattern.isNotEmpty()) {
+            val pattern = TextView(this)
+            pattern.text = r.signalPattern
+            pattern.setTextColor(Prefs.textDim(this))
+            pattern.textSize = 15f
+            row.addView(pattern)
         }
 
-        r.macroAccumulation?.let { acc ->
-            if (acc.level.isNotEmpty()) {
-                val accEmoji = when (acc.level) { "strong" -> "🔥"; "medium" -> "🟢"; else -> "🟡" }
-                val accDir = if (acc.type == "long") "В ЛОНГ" else "В ШОРТ"
-                val accColor = when (acc.level) { "strong" -> Color.rgb(80, 40, 200); "medium" -> Color.rgb(40, 100, 200); else -> Color.rgb(100, 80, 180) }
-                row.addView(makeSignalBadge("🏛 $accEmoji МАКРО $accDir", accColor))
-            }
+        val price = TextView(this)
+        price.text = "Цена: "+ "%.4f".format(r.price) + "  ·  15м: " + "%+.2f".format(r.change15m) + "%"
+        price.setTextColor(Prefs.text(this))
+        price.textSize = 16f
+        price.setPadding(0, 8, 0, 0)
+        row.addView(price)
+
+        if (hasSignal) {
+            val confirmation = TextView(this)
+            confirmation.text = "✓ Свеча подтверждения закрыта"
+            confirmation.setTextColor(Prefs.textDim(this))
+            confirmation.textSize = 14f
+            row.addView(confirmation)
         }
-        val patternSuffix = if (r.signalPattern.isNotEmpty()) " — ${r.signalPattern}" else ""
-        if (r.signalType == "short" && r.signalStrength == "strong") {
-            row.addView(makeSignalBadge("🟢 ВХОД В ШОРТ$patternSuffix", Color.rgb(30, 120, 60)))
-        } else if (r.signalType == "long" && r.signalStrength == "strong") {
-            row.addView(makeSignalBadge("🟢 ВХОД В ЛОНГ$patternSuffix", Color.rgb(30, 120, 60)))
-        } else if (r.signalType == "short" && r.signalStrength == "weak" && !isWeakConflict(r)) {
-            row.addView(makeSignalBadge("🟡 Возможен вход в шорт (объём/позиция)$patternSuffix", Color.rgb(140, 110, 20)))
-        } else if (r.signalType == "long" && r.signalStrength == "weak" && !isWeakConflict(r)) {
-            row.addView(makeSignalBadge("🟡 Возможен вход в лонг (объём/позиция)$patternSuffix", Color.rgb(140, 110, 20)))
-        }
-
-        val notifEmoji = when (notifPriority) { 3 -> "💥 "; 2 -> "⚡ "; 1 -> "📈 "; else -> "" }
-        val scoreEmoji = when {
-            r.signalStrength == "strong" -> "${notifEmoji}🟢🚀"
-            r.signalStrength == "weak" && !isWeakConflict(r) -> "${notifEmoji}🟡🚀"
-            liq != null && liq.total15m >= liqThreshold -> "${notifEmoji}🚀💥"
-            r.score >= 3 -> "${notifEmoji}🚀🚀🚀"
-            r.score == 2 -> "${notifEmoji}🚀🚀"
-            else -> "${notifEmoji}🚀"
-        }
-
-        val titleRow = LinearLayout(this)
-        titleRow.orientation = LinearLayout.HORIZONTAL
-        titleRow.gravity = Gravity.CENTER_VERTICAL
-        val title = TextView(this)
-        title.text = "$scoreEmoji  ${r.symbol}"
-        title.setTextColor(Prefs.text(this))
-        title.textSize = 21f
-        title.setTypeface(null, Typeface.BOLD)
-        title.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        titleRow.addView(title)
-
-        val copyBtn = TextView(this)
-        copyBtn.text = "📋"
-        copyBtn.textSize = 22f
-        copyBtn.setPadding(12, 0, 0, 0)
-        copyBtn.setOnClickListener { copyToClipboard(r) }
-        titleRow.addView(copyBtn)
-
-        val pinBtn = TextView(this)
-        pinBtn.text = if (isPinned) "📍" else "📌"
-        pinBtn.textSize = 24f
-        pinBtn.setPadding(12, 0, 0, 0)
-        pinBtn.setOnClickListener { togglePin(r.symbol) }
-        titleRow.addView(pinBtn)
-        row.addView(titleRow)
-
-        val changeSign = if (r.change15m >= 0) "+" else ""
-        val priceLine = TextView(this)
-        priceLine.text = "Цена: ${"%.4f".format(r.price)}  ·  15м: $changeSign${"%.2f".format(r.change15m)}%"
-        priceLine.setTextColor(Prefs.textDim(this))
-        priceLine.textSize = 17f
-        row.addView(priceLine)
-
-        val volLine = TextView(this)
-        volLine.text = "💰 24ч: ${UiUtils.formatMoney(r.turnover24h)} · 1ч: ${UiUtils.formatMoney(r.turnover1h)}"
-        volLine.setTextColor(Prefs.textDim(this))
-        volLine.textSize = 17f
-        row.addView(volLine)
-
-        if (r.deltaPct1m != 0.0 || r.flowStatus.isNotEmpty()) {
-            val deltaEmoji = when {
-                r.deltaPct1m > 20 -> "🟢"
-                r.deltaPct1m < -20 -> "🔴"
-                else -> "⚪"
-            }
-            val deltaColor = when {
-                r.deltaPct1m > 20 -> Color.rgb(120, 200, 140)
-                r.deltaPct1m < -20 -> Color.rgb(220, 120, 120)
-                else -> Prefs.textDim(this)
-            }
-            val flowLabel = when (r.flowStatus) {
-                "new_long" -> "🟢 New Money ↑"
-                "short_squeeze" -> "🔴 Short Squeeze"
-                "new_short" -> "🔴 New Money ↓"
-                "long_squeeze" -> "🟢 Long Squeeze"
-                else -> "⚪ Churn"
-            }
-            val deltaSign = if (r.deltaPct1m >= 0) "+" else ""
-            val realDeltaStr = when {
-                r.realDeltaUsd == 0.0 -> "—"
-                r.realDeltaUsd > 0 -> "+${UiUtils.formatMoney(r.realDeltaUsd)}"
-                else -> "-${UiUtils.formatMoney(-r.realDeltaUsd)}"
-            }
-            row.addView(makeDirRow(
-                "Δ 1м: $deltaEmoji $deltaSign${"%.0f".format(r.deltaPct1m)}% ($realDeltaStr buy/sell)  ·  $flowLabel",
-                dirForFlow(r.flowStatus),
-                deltaColor,
-                16f,
-                padTop = 2
-            ))
-        }
-
-        val cvdEmoji = if (r.cvd1h > 0) "🟢" else if (r.cvd1h < 0) "🔴" else "⚪"
-        val cvdSign = if (r.cvd1h >= 0) "+" else ""
-        val cvdColor = when {
-            r.cvd1h > 0 -> Color.rgb(120, 200, 140)
-            r.cvd1h < 0 -> Color.rgb(220, 120, 120)
-            else -> Prefs.textDim(this)
-        }
-        val burstEmoji = if (r.burstsUp > r.burstsDown) "🟢" else if (r.burstsDown > r.burstsUp) "🔴" else "⚪"
-        row.addView(makeDirRow(
-            "📊 CVD 1ч: $cvdSign${UiUtils.formatMoney(r.cvd1h)} · Толчки: ${r.burstsUp}↑ / ${r.burstsDown}↓",
-            burstEmoji,
-            cvdColor,
-            16f,
-            padTop = 1
-        ))
-
-        if (r.openInterest > 0) {
-            val oiLine = TextView(this)
-            val oiChangeStr = if (r.openInterestChange >= 0)
-                "+${"%.2f".format(r.openInterestChange)}%"
-            else
-                "${"%.2f".format(r.openInterestChange)}%"
-            val trendIcon = when (r.oiTrend) {
-                "accelerating" -> " ↗️"
-                "slowing" -> " ↘️"
-                else -> ""
-            }
-            val oiUsd = r.openInterest * r.price
-            oiLine.text = "📊 OI: ${UiUtils.formatMoney(r.openInterest)} (~${UiUtils.formatMoney(oiUsd)}) · $oiChangeStr$trendIcon"
-            oiLine.setTextColor(
-                when {
-                    r.openInterestChange > 1.0 -> Color.rgb(120, 200, 140)
-                    r.openInterestChange < -1.0 -> Color.rgb(220, 120, 120)
-                    else -> Prefs.textDim(this)
-                }
-            )
-            oiLine.textSize = 18f
-            row.addView(oiLine)
-        }
-
-        if (r.fundingRate != 0.0) {
-            val frPct = r.fundingRate * 100
-            val frSign = if (frPct >= 0) "+" else ""
-            val frPayer = if (frPct > 0) " (лонги платят)" else if (frPct < 0) " (шорты платят)" else ""
-            val frColor = if (frPct > 0.05) Color.rgb(220, 120, 120)
-                          else if (frPct < -0.05) Color.rgb(120, 200, 140)
-                          else Prefs.textDim(this)
-            val frEmoji = if (frPct > 0.05) "🔴" else if (frPct < -0.05) "🟢" else "⚪"
-
-            val frLine = TextView(this)
-            val timeLeftMs = r.nextFundingTime - System.currentTimeMillis()
-            val timeLeftStr = if (r.nextFundingTime > 0) " · до выплаты: ${formatTimeLeft(timeLeftMs)}" else ""
-            frLine.text = "📈 Ставка: $frSign${"%.3f".format(frPct)}%$frPayer$timeLeftStr $frEmoji"
-            frLine.setTextColor(frColor)
-            frLine.textSize = 17f
-            frLine.setPadding(0, 2, 0, 0)
-            row.addView(frLine)
-        }
-
-        if (liq != null && liq.total15m >= liqThreshold) {
-            val direction = if (liq.dominantIsLong) "🐂 лонги" else "🐻 шорты"
-            val domPct = if (liq.dominantIsLong) liq.longPct else liq.shortPct
-            val trendIcon = when (liq.trend) {
-                "rising" -> "🔥 растёт"
-                "falling" -> "🪫 затухает"
-                else -> "➡️ стабильно"
-            }
-            row.addView(makeDirRow(
-                "💥 Ликвидации: ${UiUtils.formatMoney(liq.total15m)} · $direction ${"%.0f".format(domPct)}% · $trendIcon",
-                dirForLiq(liq),
-                when (liq.trend) {
-                    "rising" -> Color.rgb(255, 120, 120)
-                    "falling" -> Color.rgb(255, 200, 60)
-                    else -> Prefs.text(this)
-                },
-                18f,
-                bold = true,
-                padTop = 0
-            ))
-            val peakList = synchronized(MarketState.cascadePeakLock) {
-                MarketState.cascadePeaks[r.symbol]?.toList() ?: emptyList()
-            }
-            if (peakList.isNotEmpty()) {
-                val avgPeak = peakList.map { it.sum }.average()
-                if (avgPeak > 0) {
-                    val percent = (liq.total15m / avgPeak * 100).toInt()
-                    val maxPeak = peakList.maxOf { it.sum }
-                    val exceeded = liq.total15m > maxPeak
-                    val peaksStr = peaksString(peakList)
-                    val peaksLine = TextView(this)
-                    if (exceeded) {
-                        peaksLine.text = "   Прошлые пики: $peaksStr · сейчас $percent% (перебит максимум!)"
-                        peaksLine.setTextColor(Color.rgb(255, 150, 200))
-                    } else {
-                        peaksLine.text = "   Прошлые пики: $peaksStr · сейчас $percent% от среднего"
-                        peaksLine.setTextColor(Prefs.textDim(this))
-                    }
-                    peaksLine.textSize = 15f
-                    peaksLine.setPadding(0, 2, 0, 0)
-                    row.addView(peaksLine)
-                }
-            }
-
-            val ltList = synchronized(MarketState.largeTradesLock) {
-                MarketState.largeTrades[r.symbol]?.toList() ?: emptyList()
-            }
-            if (ltList.isNotEmpty()) {
-                val ltK = (Prefs.largeTradeThreshold(this) / 1000).toInt()
-                val ltHeader = TextView(this)
-                ltHeader.text = "🐋 Крупные (≥$${ltK}K): ${ltList.size} шт"
-                ltHeader.setTextColor(Prefs.textDim(this))
-                ltHeader.textSize = 15f
-                ltHeader.setPadding(0, 4, 0, 0)
-                row.addView(ltHeader)
-                val last3 = ltList.takeLast(3).reversed()
-                for (lt in last3) {
-                    val ago = ((System.currentTimeMillis() - lt.time) / 60_000L).coerceAtLeast(0)
-                    val sign = if (lt.isBuy) "+" else "-"
-                    val emoji = if (lt.isBuy) "🟢" else "🔴"
-                    val ltLine = TextView(this)
-                    ltLine.text = "   $emoji $sign${UiUtils.formatMoney(lt.usd)} @ ${"%.4f".format(lt.price)} · ${ago}м"
-                    ltLine.setTextColor(if (lt.isBuy) Color.rgb(120, 200, 140) else Color.rgb(220, 120, 120))
-                    ltLine.textSize = 14f
-                    row.addView(ltLine)
-                }
-            }
-            val zoneAhead = if (!liq.dominantIsLong) r.peakForecast > r.price else r.peakForecast < r.price
-            if (r.peakForecast > 0 && zoneAhead) {
-                val peakLine = TextView(this)
-                val dirWord = if (!liq.dominantIsLong) "вверх" else "вниз"
-                val zone = if (r.peakLow > 0 && r.peakHigh > r.peakLow) {
-                    "зона ${"%.4f".format(r.peakLow)} – ${"%.4f".format(r.peakHigh)}"
-                } else {
-                    "%.4f".format(r.peakForecast)
-                }
-                val conf = if (r.peakConfident) "" else " ⚠️"
-                peakLine.text = "🎯 Зона выноса: $zone (ещё ${"%.1f".format(r.peakRemainPct)}% $dirWord)$conf"
-                peakLine.textSize = 16f
-                peakLine.setTextColor(Color.rgb(120, 200, 255))
-                peakLine.setPadding(0, 2, 0, 0)
-                row.addView(peakLine)
-            }
-        }
-
-        val sp = synchronized(MarketState.liveLock) { MarketState.liveSpeeds[r.symbol] }
-        if (sp != null) {
-            val spLine = TextView(this)
-            val icon = when {
-                sp.accelerating -> "⚡⚡⚡ ускорение"
-                sp.dying -> "🪫 затухание"
-                else -> "⚡ стабильно"
-            }
-            spLine.text = "$icon · ${"%.2f".format(sp.speedNow)}%/мин"
-            spLine.setTextColor(
-                when {
-                    sp.accelerating -> Color.rgb(120, 255, 150)
-                    sp.dying -> Color.rgb(255, 150, 150)
-                    else -> Prefs.textDim(this)
-                }
-            )
-            spLine.textSize = 17f
-            row.addView(spLine)
-        }
-
-            val ts = synchronized(MarketState.liveLock) { MarketState.liveTradeSpeeds[r.symbol] }
-            if (ts != null) {
-                val tsEmoji = when {
-                    ts.pctPerMin > 0.3 -> "🔥↑"
-                    ts.pctPerMin < -0.3 -> "🔥↓"
-                    ts.pctPerMin > 0.05 -> "·↑"
-                    ts.pctPerMin < -0.05 -> "·↓"
-                    else -> "·"
-                }
-                val tsSign = if (ts.pctPerMin >= 0) "+" else ""
-                row.addView(makeDirRow(
-                    "$tsEmoji $tsSign${"%.2f".format(ts.pctPerMin)}%/мин (${ts.tradeCount} сделок)",
-                    dirForSpeed(ts.pctPerMin),
-                    when {
-                        ts.pctPerMin > 0.3 -> Color.rgb(120, 255, 150)
-                        ts.pctPerMin < -0.3 -> Color.rgb(255, 150, 150)
-                        else -> Prefs.textDim(this)
-                    },
-                    17f,
-                    padTop = 0
-                ))
-            }
-
-        if (r.signals.isNotEmpty()) {
-            r.signals.forEach { sig ->
-                row.addView(makeDirRow(
-                    "${sig.emoji} ${sig.detail}",
-                    dirForMove(sig.movePct),
-                    Color.rgb(255, 200, 60),
-                    16f,
-                    bold = true,
-                    padTop = 2
-                ))
-            }
-        }
-
-        r.accumulation?.let { acc ->
-            if (acc.level.isNotEmpty()) {
-                val accEmoji = when (acc.level) { "strong" -> "🔥"; "medium" -> "🟢"; else -> "🟡" }
-                val accDir = if (acc.type == "long") "лонг" else "шорт"
-                val accColor = when (acc.level) { "strong" -> Color.rgb(255, 120, 60); "medium" -> Color.rgb(120, 200, 140); else -> Color.rgb(255, 200, 60) }
-                row.addView(makeDirRow(
-                    "$accEmoji Накопление $accDir · OI +${"%.2f".format(acc.oiChangePct)}% (${acc.oiBarsPositive}/9) · Диапазон ${"%.2f".format(acc.rangePct)}% · Delta ${UiUtils.formatMoney(acc.deltaUsd)}",
-                    dirForAcc(acc.type),
-                    accColor,
-                    17f,
-                    bold = true,
-                    padTop = 4
-                ))
-            }
-        }
-
-        if (r.signalType.isEmpty()) {
-            val hist = synchronized(MarketState.signalHistoryLock) { MarketState.signalHistory[r.symbol] }
-            if (hist != null && hist.candleTime > 0L) {
-                val ageMs = System.currentTimeMillis() - hist.detectedAt
-                val ageMin = ageMs / 60_000L
-                val ageLabel = when {
-                    ageMin < 1 -> "только что"
-                    ageMin < 60 -> "$ageMin мин назад"
-                    ageMin < 1440 -> "${ageMin / 60} ч назад"
-                    else -> "${ageMin / 1440} дн назад"
-                }
-                val sigLabel = if (hist.type == "long") "лонг" else "шорт"
-                val strLabel = if (hist.strength == "strong") "STRONG" else "WEAK"
-                val histLine = TextView(this)
-                histLine.text = "📜 Был сигнал $ageLabel ($strLabel $sigLabel)"
-                histLine.setTextColor(Color.rgb(150, 150, 170))
-                histLine.textSize = 15f
-                histLine.setPadding(0, 2, 0, 0)
-                row.addView(histLine)
-            }
-        }
-
         row.addView(makePaperTradingRow(r))
-
         row.setOnClickListener { openChart(r.symbol) }
         return row
     }
