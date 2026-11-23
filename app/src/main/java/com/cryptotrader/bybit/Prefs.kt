@@ -50,6 +50,10 @@ object Prefs {
     fun chartType(c: Context): String = sp(c).getString("chartType", "candles") ?: "candles"
     fun setChartType(c: Context, v: String) = sp(c).edit().putString("chartType", v).apply()
 
+    fun volumeBarUsdt(c: Context): Double = sp(c).getLong("volumeBarUsdt", 500_000L).toDouble()
+    fun setVolumeBarUsdt(c: Context, v: Double) = sp(c).edit()
+        .putLong("volumeBarUsdt", v.toLong().coerceIn(10_000L, 100_000_000L)).apply()
+
     fun history(c: Context): Int = sp(c).getInt("history", 200)
     fun setHistory(c: Context, v: Int) {
         sp(c).edit().putInt("history", v.coerceIn(100, 1000)).apply()
