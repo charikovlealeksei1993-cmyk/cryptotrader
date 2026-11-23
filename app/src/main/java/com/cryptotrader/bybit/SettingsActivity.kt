@@ -30,10 +30,6 @@ class SettingsActivity : Activity() {
     private lateinit var liqToggle: Button
     private lateinit var speedToggle: Button
     private lateinit var autoToggle: Button
-    private lateinit var autoWithBtn: Button
-    private lateinit var autoAgainstBtn: Button
-    private lateinit var autoEnterFadeBtn: Button
-    private lateinit var autoEnterStartBtn: Button
     private lateinit var volumeToggle: Button
     private lateinit var liqSoundBtn: Button
     private lateinit var speedSoundBtn: Button
@@ -917,93 +913,11 @@ liqThresholdLabel.text = formatThreshold(Prefs.liqThreshold(this))
         root.addView(autoToggle)
 
         val autoHint = TextView(this)
-        autoHint.text = "Открывает виртуальные сделки автоматически, когда каскад ликвидаций затухает. Направление — по сигналу, если нет — против горящей стороны. Размер/SL/TP — из настроек."
+        autoHint.text = "Открывает виртуальные сделки только по свежим сильным подтверждённым сигналам LONG/SHORT. Без сигнала сделка не открывается. Размер, SL и TP — из настроек."
         autoHint.textSize = 13f
         autoHint.setTextColor(Prefs.textDim(this))
         autoHint.setPadding(0, 4, 0, 20)
         root.addView(autoHint)
-
-        val autoDirLabel = TextView(this)
-        autoDirLabel.text = "Направление при отсутствии сигнала:"
-        autoDirLabel.textSize = 14f
-        autoDirLabel.setTextColor(Prefs.textDim(this))
-        autoDirLabel.setPadding(0, 8, 0, 6)
-        root.addView(autoDirLabel)
-
-        val autoDirRow = LinearLayout(this)
-        autoDirRow.orientation = LinearLayout.HORIZONTAL
-
-        autoWithBtn = Button(this)
-        autoWithBtn.text = "За горящими"
-        autoWithBtn.textSize = 14f
-        autoWithBtn.isAllCaps = false
-        autoWithBtn.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(3, 0, 3, 0) }
-        autoWithBtn.setOnClickListener {
-            Prefs.setAutoDirectionWith(this, true)
-            updateAutoDirectionButtons()
-        }
-        autoDirRow.addView(autoWithBtn)
-
-        autoAgainstBtn = Button(this)
-        autoAgainstBtn.text = "Против горящих"
-        autoAgainstBtn.textSize = 14f
-        autoAgainstBtn.isAllCaps = false
-        autoAgainstBtn.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(3, 0, 3, 0) }
-        autoAgainstBtn.setOnClickListener {
-            Prefs.setAutoDirectionWith(this, false)
-            updateAutoDirectionButtons()
-        }
-        autoDirRow.addView(autoAgainstBtn)
-
-        root.addView(autoDirRow)
-
-        val autoDirHint = TextView(this)
-        autoDirHint.text = "«За горящими» — лонг при горящих лонгах, шорт при горящих шортах (на отскок). «Против» — наоборот. Сделки помечаются AUTO_WITH / AUTO_AGAINST в статистике."
-        autoDirHint.textSize = 12f
-        autoDirHint.setTextColor(Prefs.textDim(this))
-        autoDirHint.setPadding(0, 4, 0, 20)
-        root.addView(autoDirHint)
-
-        val autoEnterLabel = TextView(this)
-        autoEnterLabel.text = "Когда входить:"
-        autoEnterLabel.textSize = 14f
-        autoEnterLabel.setTextColor(Prefs.textDim(this))
-        autoEnterLabel.setPadding(0, 8, 0, 6)
-        root.addView(autoEnterLabel)
-
-        val autoEnterRow = LinearLayout(this)
-        autoEnterRow.orientation = LinearLayout.HORIZONTAL
-
-        autoEnterFadeBtn = Button(this)
-        autoEnterFadeBtn.text = "На затухании"
-        autoEnterFadeBtn.textSize = 14f
-        autoEnterFadeBtn.isAllCaps = false
-        autoEnterFadeBtn.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(3, 0, 3, 0) }
-        autoEnterFadeBtn.setOnClickListener {
-            Prefs.setAutoEnterAtStart(this, false)
-            updateAutoEnterButtons()
-        }
-        autoEnterRow.addView(autoEnterFadeBtn)
-
-        autoEnterStartBtn = Button(this)
-        autoEnterStartBtn.text = "В начале каскада"
-        autoEnterStartBtn.textSize = 14f
-        autoEnterStartBtn.isAllCaps = false
-        autoEnterStartBtn.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(3, 0, 3, 0) }
-        autoEnterStartBtn.setOnClickListener {
-            Prefs.setAutoEnterAtStart(this, true)
-            updateAutoEnterButtons()
-        }
-        autoEnterRow.addView(autoEnterStartBtn)
-
-        root.addView(autoEnterRow)
-
-        val autoEnterHint = TextView(this)
-        autoEnterHint.text = "«На затухании» — вход после того, как каскад выдохся (отскок). «В начале каскада» — вход сразу при росте ликвидаций (движение). С направлением «Против горящих» — зарабатываешь на самом каскаде."
-        autoEnterHint.textSize = 12f
-        autoEnterHint.setTextColor(Prefs.textDim(this))
-        autoEnterHint.setPadding(0, 4, 0, 20)
-        root.addView(autoEnterHint)
 
         // ===== Назад =====
         val back = Button(this)
@@ -1042,8 +956,6 @@ liqThresholdLabel.text = formatThreshold(Prefs.liqThreshold(this))
         updateNotifButtons()
         updateSoundButtons()
         updateAutoToggle()
-        updateAutoDirectionButtons()
-        updateAutoEnterButtons()
     }
 
     private fun formatTimeout(min: Int): String = when (min) {
@@ -1134,14 +1046,6 @@ liqThresholdLabel.text = formatThreshold(Prefs.liqThreshold(this))
         "volume" -> PICK_SOUND_VOLUME
         else -> PICK_SOUND_MAIN
     }
-    private fun updateAutoEnterButtons() {
-        updatePair(autoEnterFadeBtn, autoEnterStartBtn, !Prefs.autoEnterAtStart(this))
-    }
-
-    private fun updateAutoDirectionButtons() {
-        updatePair(autoWithBtn, autoAgainstBtn, Prefs.autoDirectionWith(this))
-    }
-
     private fun updateAutoToggle() {
         applyToggleStyle(autoToggle, Prefs.autoTradingEnabled(this))
     }
