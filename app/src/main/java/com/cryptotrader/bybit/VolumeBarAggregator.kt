@@ -23,12 +23,14 @@ class VolumeBarAggregator(thresholdUsdt: Double, private val maxBars: Int = 1000
     private var threshold = thresholdUsdt.coerceAtLeast(1.0)
     private val finished = ArrayDeque<VolumeBar>()
     private var current: VolumeBar? = null
+    private var lastTradeTime = Long.MIN_VALUE
 
     @Synchronized
     fun reset(newThresholdUsdt: Double = threshold) {
         threshold = newThresholdUsdt.coerceAtLeast(1.0)
         finished.clear()
         current = null
+        lastTradeTime = Long.MIN_VALUE
     }
 
     /** A single large trade can close several bars. Its notional is split exactly. */
@@ -36,6 +38,8 @@ class VolumeBarAggregator(thresholdUsdt: Double, private val maxBars: Int = 1000
     fun addTrade(time: Long, price: Double, quantity: Double, isBuy: Boolean) {
         if (time <= 0L || !price.isFinite() || price <= 0.0 ||
             !quantity.isFinite() || quantity <= 0.0) return
+        if (time < lastTradeTime) return // Preserve execution order for OHLC.
+        lastTradeTime = time
         var remaining = price * quantity
         if (!remaining.isFinite() || remaining <= 0.0) return
         while (remaining > 1e-8) {
