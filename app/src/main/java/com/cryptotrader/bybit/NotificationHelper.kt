@@ -113,8 +113,8 @@ object NotificationHelper {
                 }
             }
 
-            if (type.isEmpty() && Prefs.notifEnabled(context, "volume")) {
-                if (r.volRatio >= 5.0) {
+            if (type.isEmpty()) {
+                if (Prefs.notifEnabled(context, "volume") && r.volRatio >= 5.0) {
                     type = "volume"
                     reasons.add("📈 Аномальный объём ×${"%.1f".format(r.volRatio)}")
                 }
