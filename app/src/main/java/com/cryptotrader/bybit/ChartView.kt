@@ -812,21 +812,12 @@ if (!isVolumeChart) {
                 framePaint
             )
 
-            val arrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = markerColor
-                textSize = 40f
-                typeface = Typeface.DEFAULT_BOLD
-                textAlign = Paint.Align.CENTER
-            }
-            if (isShort) {
-                canvas.drawText("⬇", x, yH - 10f, arrowPaint)
-            } else {
-                canvas.drawText("⬆", x, yL + 45f, arrowPaint)
-            }
-
             if (marker.pattern.isNotEmpty()) {
+                val confirmed = !marker.pattern.contains("без подтверждения", ignoreCase = true) &&
+                    marker.pattern.contains("подтвержд", ignoreCase = true)
+                val confirmationColor = if (confirmed) Color.rgb(120, 255, 150) else Color.rgb(255, 120, 140)
                 val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = markerColor
+                    color = confirmationColor
                     textSize = 26f
                     typeface = Typeface.DEFAULT_BOLD
                     textAlign = Paint.Align.CENTER
@@ -857,12 +848,7 @@ if (!isVolumeChart) {
                     else -> if (patternName.length > 18) patternName.take(17) + "…" else patternName
                 }
                 val score = Regex("(\\d+)/100").find(marker.pattern)?.groupValues?.get(1)
-                val confirmation = when {
-                    marker.pattern.contains("без подтверждения", ignoreCase = true) -> "?"
-                    marker.pattern.contains("подтвержд", ignoreCase = true) -> "✓"
-                    else -> ""
-                }
-                val scoreLabel = if (score != null) " · $score$confirmation" else ""
+                val scoreLabel = if (score != null) " · $score" else ""
                 val tfSuffix = if (tfLabel.isNotEmpty()) " · $tfLabel" else ""
                 val label = "$abbreviated$scoreLabel$tfSuffix"
 
