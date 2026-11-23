@@ -21,7 +21,7 @@ object NotificationHelper {
 
     private const val NOTIFY_COOLDOWN_MS = 60 * 60 * 1000L
     private const val NOTIFIED_TTL = 60 * 1000L
-    private const val SIGNAL_NOTIFY_COOLDOWN_MS = 30 * 60 * 1000L
+    private const val SIGNAL_NOTIFY_COOLDOWN_MS = 5 * 60 * 1000L
 
     fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -137,7 +137,7 @@ object NotificationHelper {
 
         for (r in scanResults) {
             if (r.signalType.isEmpty()) continue
-            if (r.signalStrength != "strong") continue
+            // All detected patterns can notify; suppress repetitions of the same move.
             val key = "${r.symbol}_${r.signalCandleTime}"
             val prevKey = synchronized(MarketState.notifiedCooldown) {
                 MarketState.notifiedSignalKey[r.symbol]
@@ -146,9 +146,13 @@ object NotificationHelper {
             val lastT = synchronized(MarketState.notifiedCooldown) {
                 MarketState.notifiedSignalTime[r.symbol] ?: 0L
             }
-            if (now - lastT < SIGNAL_NOTIFY_COOLDOWN_MS) continue
+            val previousDirection = synchronized(MarketState.notifiedCooldown) {
+                MarketState.notifiedSignalKey[r.symbol]?.substringAfterLast("_")
+            }
+            if (previousDirection == r.signalType &&
+                now - lastT < SIGNAL_NOTIFY_COOLDOWN_MS) continue
             synchronized(MarketState.notifiedCooldown) {
-                MarketState.notifiedSignalKey[r.symbol] = key
+                MarketState.notifiedSignalKey[r.symbol] = "$key" + "_" + r.signalType
                 MarketState.notifiedSignalTime[r.symbol] = now
             }
             sendSignalNotification(context, r)
@@ -167,8 +171,8 @@ object NotificationHelper {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             val patternStr = if (r.signalPattern.isNotEmpty()) " (${r.signalPattern})" else ""
-            val label = if (r.signalType == "long") "🟢 ВХОД В ЛОНГ$patternStr"
-                        else "🟢 ВХОД В ШОРТ$patternStr"
+            val label = if (r.signalType == "long") "🟢 LONG$patternStr"
+                        else "🔴 SHORT$patternStr"
             val title = "$label — ${r.symbol}"
             val body = buildString {
                 appendLine("Цена: ${"%.4f".format(r.price)} · 15м: ${"%+.2f".format(r.change15m)}%")
@@ -200,7 +204,22 @@ object NotificationHelper {
                     NotificationManagerCompat.from(context)
                         .notify(r.symbol.hashCode() + 2000, builder.build())
                 } catch (_: SecurityException) {}
-                playSoundFor(context, "signal")
+                val tier = when {
+                    r.signalPattern.contains("/100") -> {
+                        val points = Regex("(\\\\d+)/100").find(r.signalPattern)
+                            ?.groupValues?.get(1)?.toIntOrNull() ?: 0
+                        when {
+                            points >= 85 -> "very_strong"
+                            points >= 70 -> "strong"
+                            points >= 50 -> "medium"
+                            else -> "weak"
+                        }
+                    }
+                    else -> "weak"
+                }
+                if (Prefs.signalSoundEnabled(context, tier)) {
+                    playSoundFor(context, "signal_$tier")
+                }
             }
             vibrate(context, 500)
         } catch (_: Exception) {}
