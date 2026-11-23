@@ -62,8 +62,10 @@ class LiquidationSocket(
                         val vol = t.getString("v").toDoubleOrNull() ?: 0.0
                         val price = t.getString("p").toDoubleOrNull() ?: 0.0
                         val usd = vol * price
-                        // Bybit S is the execution side: Sell closes a liquidated LONG; Buy closes a SHORT.
-                        val isLong = side == "Sell"
+                        // Bybit allLiquidation.S is the LIQUIDATED POSITION side, not
+                        // the forced closing order side: Buy = LONG, Sell = SHORT.
+                        if (side != "Buy" && side != "Sell") continue
+                        val isLong = side == "Buy"
                         onLiquidation(sym, ts, usd, isLong, price)
                     }
                 } catch (_: Exception) {}
