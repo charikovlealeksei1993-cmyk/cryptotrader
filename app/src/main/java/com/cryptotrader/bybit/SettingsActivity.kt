@@ -465,29 +465,76 @@ class SettingsActivity : Activity() {
 
         val chartRow = LinearLayout(this)
         chartRow.orientation = LinearLayout.HORIZONTAL
-        val candLp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        candLp.setMargins(3, 8, 3, 24)
-        val candBtn = Button(this)
-        candBtn.text = "Свечи"
-        candBtn.layoutParams = candLp
-        val lineLp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        lineLp.setMargins(3, 8, 3, 24)
-        val lineBtn = Button(this)
-        lineBtn.text = "Линия"
-        lineBtn.layoutParams = lineLp
-
-        candBtn.setOnClickListener {
-            Prefs.setChartType(this, "candles")
-            updatePair(candBtn, lineBtn, true)
+        val chartButtons = ArrayList<Pair<String, Button>>()
+        for ((type, label) in listOf(
+            "candles" to "Свечи",
+            "line" to "Линия",
+            "volume" to "Объёмные"
+        )) {
+            val button = Button(this)
+            button.text = label
+            button.textSize = 12f
+            button.isAllCaps = false
+            val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            lp.setMargins(2, 8, 2, 12)
+            button.layoutParams = lp
+            chartRow.addView(button)
+            chartButtons.add(type to button)
         }
-        lineBtn.setOnClickListener {
-            Prefs.setChartType(this, "line")
-            updatePair(candBtn, lineBtn, false)
-        }
-        chartRow.addView(candBtn)
-        chartRow.addView(lineBtn)
         root.addView(chartRow)
-        updatePair(candBtn, lineBtn, Prefs.chartType(this) == "candles")
+
+        val volumeTitle = TextView(this)
+        volumeTitle.text = "Объём одной свечи (USDT)"
+        volumeTitle.textSize = 16f
+        volumeTitle.setTextColor(Prefs.text(this))
+        root.addView(volumeTitle)
+
+        val volumeRow = LinearLayout(this)
+        volumeRow.orientation = LinearLayout.HORIZONTAL
+        val volumeButtons = ArrayList<Pair<Double, Button>>()
+        for ((amount, label) in listOf(
+            100_000.0 to "100K",
+            500_000.0 to "500K",
+            1_000_000.0 to "1M",
+            5_000_000.0 to "5M"
+        )) {
+            val button = Button(this)
+            button.text = label
+            button.textSize = 12f
+            button.isAllCaps = false
+            val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            lp.setMargins(2, 0, 2, 12)
+            button.layoutParams = lp
+            button.setOnClickListener {
+                Prefs.setVolumeBarUsdt(this, amount)
+                for ((v, b) in volumeButtons) {
+                    b.alpha = if (v == Prefs.volumeBarUsdt(this)) 1f else 0.5f
+                }
+            }
+            volumeRow.addView(button)
+            volumeButtons.add(amount to button)
+        }
+        root.addView(volumeRow)
+
+        fun refreshChartType() {
+            val selected = Prefs.chartType(this)
+            for ((type, button) in chartButtons) {
+                button.alpha = if (type == selected) 1f else 0.5f
+            }
+            val showVolume = selected == "volume"
+            volumeTitle.visibility = if (showVolume) android.view.View.VISIBLE else android.view.View.GONE
+            volumeRow.visibility = if (showVolume) android.view.View.VISIBLE else android.view.View.GONE
+        }
+        for ((type, button) in chartButtons) {
+            button.setOnClickListener {
+                Prefs.setChartType(this, type)
+                refreshChartType()
+            }
+        }
+        for ((amount, button) in volumeButtons) {
+            button.alpha = if (amount == Prefs.volumeBarUsdt(this)) 1f else 0.5f
+        }
+        refreshChartType()
 
         // ===== История =====
         val histLabel = TextView(this)
