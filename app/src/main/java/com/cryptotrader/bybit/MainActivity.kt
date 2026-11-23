@@ -868,11 +868,12 @@ class MainActivity : Activity() {
         )
         chartView.setLiqClusters(computeLiqClusters(currentSymbol))
         val currentOiChange = scanResults.firstOrNull { it.symbol == currentSymbol }?.openInterestChange ?: 0.0
+        val estimatedZones = estimateFutureLiqZones(currentSymbol, candles, currentOiChange)
         chartView.setFutureLiqZones(
-            if (Prefs.futureLiquidationsEnabled(this))
-                estimateFutureLiqZones(currentSymbol, candles, currentOiChange)
-            else emptyList()
+            if (Prefs.futureLiquidationsEnabled(this)) estimatedZones else emptyList()
         )
+        checkFutureZoneAlert(currentSymbol, candles.last().close, estimatedZones)
+        checkCascadeAlert(currentSymbol)
                         val acc2 = scanResults.firstOrNull { it.symbol == currentSymbol }?.accumulation
                         chartView.setAccumulationZone(acc2?.priceLow ?: 0.0, acc2?.priceHigh ?: 0.0)
         val acc = scanResults.firstOrNull { it.symbol == currentSymbol }?.accumulation
@@ -1027,6 +1028,16 @@ class MainActivity : Activity() {
     private fun buildCardText(r: ScanResult): String {
         val sb = StringBuilder()
         val liqThreshold = Prefs.liqThreshold(this)
+
+        nearestFutureZone(r.symbol, r.price)?.let { zone ->
+            val distancePct = kotlin.math.abs(zone.price / r.price - 1.0) * 100.0
+            if (distancePct <= 1.0) {
+                sb.appendLine("⚠️ Оценочный кластер ${zone.side} ${zone.leverage}× · ${"%.2f".format(distancePct)}% от цены")
+            }
+        }
+        if (cascadeAlertState[r.symbol] == true) {
+            sb.appendLine("💥 Возможный каскад ликвидаций (по реальным сделкам)")
+        }
 
         r.accumulation?.let { acc ->
             if (acc.level.isNotEmpty()) {
@@ -1584,6 +1595,57 @@ class MainActivity : Activity() {
     }
 
     private fun getCachedLiqStats(symbol: String): LiqStats? = MarketState.liqStatsCache[symbol]
+    private val cascadeAlertState = HashMap<String, Boolean>()
+    private val cascadeLastCheck = HashMap<String, Long>()
+
+    private fun nearestFutureZone(symbol: String, price: Double): FutureLiqZone? {
+        if (price <= 0.0) return null
+        return synchronized(futureZoneLock) {
+            val zones = futureZoneState[symbol] ?: return@synchronized null
+            val strongest = zones.maxOfOrNull { it.weight } ?: return@synchronized null
+            if (strongest <= 0.0) return@synchronized null
+            zones.filter { it.weight >= strongest * 0.35 }
+                .minByOrNull { kotlin.math.abs(it.price / price - 1.0) }
+                ?.let { FutureLiqZone(it.price, it.side, it.leverage, it.weight / strongest) }
+        }
+    }
+
+    private fun checkFutureZoneAlert(symbol: String, price: Double, zones: List<FutureLiqZone>) {
+        if (price <= 0.0 || zones.isEmpty()) return
+        val near = zones.filter { it.strength >= 0.65 &&
+            kotlin.math.abs(it.price / price - 1.0) <= 0.005 }
+            .minByOrNull { kotlin.math.abs(it.price - price) } ?: return
+        NotificationHelper.sendRiskAlert(this, symbol, "cluster",
+            "⚠️ Цена рядом с оценочным кластером ${near.side} ${near.leverage}×")
+    }
+
+    private fun checkCascadeAlert(symbol: String) {
+        val now = System.currentTimeMillis()
+        if (now - (cascadeLastCheck[symbol] ?: 0L) < 60_000L) return
+        cascadeLastCheck[symbol] = now
+        val events = synchronized(MarketState.liqLock) {
+            MarketState.liqBuffer[symbol]?.toList() ?: emptyList()
+        }
+        val recent = events.filter { it.time >= now - 3 * 60_000L && it.usd > 0.0 }
+        val previous = events.filter {
+            it.time in (now - 6 * 60_000L) until (now - 3 * 60_000L) && it.usd > 0.0
+        }
+        val recentUsd = recent.sumOf { it.usd }
+        val previousUsd = previous.sumOf { it.usd }
+        val active = recent.size >= 3 && recentUsd >= 50_000.0 &&
+            recentUsd > previousUsd * 1.5
+        val wasActive = cascadeAlertState[symbol] ?: false
+        if (active && !wasActive) {
+            cascadeAlertState[symbol] = true
+            NotificationHelper.sendRiskAlert(this, symbol, "cascade",
+                "💥 Возможное начало каскада: рост реальных ликвидаций за 3 минуты")
+        } else if (wasActive && recentUsd < previousUsd * 0.5) {
+            cascadeAlertState[symbol] = false
+            NotificationHelper.sendRiskAlert(this, symbol, "cascade",
+                "📉 Каскад, вероятно, затухает: объём ликвидаций снизился")
+        }
+    }
+
     // Stateful, relative risk estimates: these are NOT observed liquidation orders.
     private data class TrackedFutureZone(
         var price: Double, val side: String, val leverage: Int,
