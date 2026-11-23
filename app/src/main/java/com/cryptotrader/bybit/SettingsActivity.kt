@@ -684,6 +684,31 @@ liqThresholdLabel.text = formatThreshold(Prefs.liqThreshold(this))
         val (vt, vs) = notifRow("Объём и оборот", "volume")
         volumeToggle = vt; volumeSoundBtn = vs
 
+        // ===== Signal strength sound controls =====
+        val signalSoundTitle = TextView(this)
+        signalSoundTitle.text = "🔔 Звуки разворотных сигналов"
+        signalSoundTitle.textSize = 20f
+        signalSoundTitle.setTextColor(Prefs.text(this))
+        root.addView(signalSoundTitle)
+        for ((tier, caption) in listOf(
+            "weak" to "Слабые (0–49)",
+            "medium" to "Средние (50–69)",
+            "strong" to "Подтверждённые (70–84)",
+            "very_strong" to "Сильные (85–100)"
+        )) {
+            val toggle = Button(this)
+            fun updateToggle() {
+                toggle.text = "$caption: " +
+                    if (Prefs.signalSoundEnabled(this, tier)) "🔊 Вкл" else "🔇 Выкл"
+            }
+            updateToggle()
+            toggle.setOnClickListener {
+                Prefs.setSignalSoundEnabled(this, tier, !Prefs.signalSoundEnabled(this, tier))
+                updateToggle()
+            }
+            root.addView(toggle)
+        }
+
         // ===== Звук по умолчанию =====
         val soundLabel = TextView(this)
         soundLabel.text = "Звук по умолчанию (если не выбран выше)"
