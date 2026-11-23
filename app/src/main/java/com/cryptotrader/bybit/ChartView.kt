@@ -324,7 +324,8 @@ class ChartView(context: Context) : View(context) {
         if (slice.isEmpty()) return
 
         // Reserve a left gutter for the independent CVD USDT scale.
-        val pL = if (volumeBars.isNotEmpty() && volumeBars.size == candles.size) 102f else 16f
+        val isVolumeChart = volumeBars.isNotEmpty() && volumeBars.size == candles.size
+        val pL = if (isVolumeChart) 134f else 16f
         val pR = 110f
         val pT = 30f
         val pB = 40f
@@ -332,13 +333,13 @@ class ChartView(context: Context) : View(context) {
         val h = height.toFloat()
 
         val totalPlot = h - pT - pB
-        val candleH = totalPlot * 0.64f
-        val volH = totalPlot * 0.13f
-        val lsH = totalPlot * 0.13f
+        val candleH = totalPlot * (if (isVolumeChart) 0.70f else 0.64f)
+        val volH = totalPlot * (if (isVolumeChart) 0f else 0.13f)
+        val lsH = totalPlot * (if (isVolumeChart) 0.24f else 0.13f)
 
         val candleTop = pT
         val volTop = candleTop + candleH + totalPlot * 0.02f
-        val lsTop = volTop + volH + totalPlot * 0.02f
+        val lsTop = if (isVolumeChart) volTop else volTop + volH + totalPlot * 0.02f
 
         val minPAdj = if (yMax > yMin) yMin else slice.minOf { it.low }
         val maxPAdj = if (yMax > yMin) yMax else slice.maxOf { it.high }
@@ -524,7 +525,8 @@ class ChartView(context: Context) : View(context) {
             canvas.drawText("▲ ASK ${"%.4f".format(askWallPrice)} (${formatUsd(askWallUsd)})",
                 pL + 4, candleTop - 8, edgePaint)
         }
-canvas.save()
+if (!isVolumeChart) {
+        canvas.save()
         canvas.clipRect(pL, volTop, w - pR, volTop + volH)
 
         slice.forEachIndexed { i, c ->
@@ -545,6 +547,7 @@ canvas.save()
 
         textPaint.color = labelColor
         canvas.drawText("VOL", pL + 4, volTop + volH - 4, textPaint)
+        }
 
         if (volumeBars.isNotEmpty() && volumeBars.size == candles.size) {
             // Volume delta histogram (% of each bar's notional) and cumulative
@@ -599,7 +602,7 @@ canvas.save()
             // unbounded running USDT total and needs its own live scale.
             val cvdLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = Color.rgb(255, 190, 75)
-                textSize = textPaint.textSize * 0.85f
+                textSize = textPaint.textSize * 1.12f
                 typeface = Typeface.DEFAULT_BOLD
             }
             val pctLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -622,11 +625,11 @@ canvas.save()
             fun signedCvd(value: Double): String =
                 (if (value > 0.0) "+" else if (value < 0.0) "-" else "") +
                     formatUsd(kotlin.math.abs(value))
-            canvas.drawText("CVD USDT", 4f, lsTop + 12f, cvdLabelPaint)
-            canvas.drawText(signedCvd(cvdMax), 4f, cvdTopY + 4f, cvdLabelPaint)
-            canvas.drawText(signedCvd(cvdMidValue), 4f,
+            canvas.drawText("CVD USDT", 10f, lsTop + 19f, cvdLabelPaint)
+            canvas.drawText(signedCvd(cvdMax), 10f, cvdTopY + 4f, cvdLabelPaint)
+            canvas.drawText(signedCvd(cvdMidValue), 10f,
                 (cvdTopY + cvdBottomY) / 2f + 4f, cvdLabelPaint)
-            canvas.drawText(signedCvd(cvdMin), 4f, cvdBottomY + 4f, cvdLabelPaint)
+            canvas.drawText(signedCvd(cvdMin), 10f, cvdBottomY + 4f, cvdLabelPaint)
             canvas.drawText("CVD " + signedCvd(cvdLast), pL + 4f,
                 panelBottom + 19f, cvdLabelPaint)
         } else if (lsPoints.size >= 2) {
