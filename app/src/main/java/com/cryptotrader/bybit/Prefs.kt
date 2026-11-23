@@ -245,18 +245,6 @@ object Prefs {
     fun setAutoTradingEnabled(c: Context, v: Boolean) =
         sp(c).edit().putBoolean("autoTradingEnabled", v).apply()
 
-    fun autoDirectionWith(c: Context): Boolean =
-        sp(c).getBoolean("autoDirectionWith", false)
-
-    fun setAutoDirectionWith(c: Context, v: Boolean) =
-        sp(c).edit().putBoolean("autoDirectionWith", v).apply()
-
-    fun autoEnterAtStart(c: Context): Boolean =
-        sp(c).getBoolean("autoEnterAtStart", false)
-
-    fun setAutoEnterAtStart(c: Context, v: Boolean) =
-        sp(c).edit().putBoolean("autoEnterAtStart", v).apply()
-
     // ================== Накопления ==================
     fun accMinutes(c: Context): Int = sp(c).getInt("accMinutes", 45)
     fun setAccMinutes(c: Context, v: Int) = sp(c).edit().putInt("accMinutes", v.coerceIn(5, 120)).apply()
