@@ -23,6 +23,8 @@ class SettingsActivity : Activity() {
     private val PICK_SOUND_LIQ = 2002
     private val PICK_SOUND_SPEED = 2003
     private val PICK_SOUND_VOLUME = 2004
+    private val signalSoundTiers = listOf("weak", "medium", "strong", "very_strong")
+    private val signalSoundButtons = mutableMapOf<String, Button>()
 
     private lateinit var liqToggle: Button
     private lateinit var speedToggle: Button
@@ -707,6 +709,15 @@ liqThresholdLabel.text = formatThreshold(Prefs.liqThreshold(this))
                 updateToggle()
             }
             root.addView(toggle)
+
+            val soundButton = Button(this)
+            soundButton.isAllCaps = false
+            soundButton.text = "🎵 Выбрать: ${Prefs.soundDisplayName(this, Prefs.soundUriFor(this, "signal_$tier"))}"
+            soundButton.setOnClickListener {
+                pickSound(2101 + signalSoundTiers.indexOf(tier), Prefs.soundUriFor(this, "signal_$tier"))
+            }
+            signalSoundButtons[tier] = soundButton
+            root.addView(soundButton)
         }
 
         // ===== Звук по умолчанию =====
@@ -1120,9 +1131,13 @@ liqThresholdLabel.text = formatThreshold(Prefs.liqThreshold(this))
             PICK_SOUND_LIQ -> Prefs.setSoundUriFor(this, "liquidation", uri)
             PICK_SOUND_SPEED -> Prefs.setSoundUriFor(this, "speed", uri)
             PICK_SOUND_VOLUME -> Prefs.setSoundUriFor(this, "volume", uri)
+            in 2101..2104 -> Prefs.setSoundUriFor(this, "signal_${signalSoundTiers[requestCode - 2101]}", uri)
         }
         playPreview(uri)
         updateSoundButtons()
+        for ((tier, button) in signalSoundButtons) {
+            button.text = "🎵 Выбрать: ${Prefs.soundDisplayName(this, Prefs.soundUriFor(this, "signal_$tier"))}"
+        }
     }
 
     private fun playPreview(uri: Uri) {
