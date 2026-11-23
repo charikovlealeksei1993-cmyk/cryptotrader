@@ -47,6 +47,11 @@ object Prefs {
         sp(c).edit().putString("theme", v).apply()
     }
 
+    fun futureLiquidationsEnabled(c: Context): Boolean =
+        sp(c).getBoolean("futureLiquidationsEnabled", true)
+    fun setFutureLiquidationsEnabled(c: Context, enabled: Boolean) =
+        sp(c).edit().putBoolean("futureLiquidationsEnabled", enabled).apply()
+
     fun chartType(c: Context): String = sp(c).getString("chartType", "candles") ?: "candles"
     fun setChartType(c: Context, v: String) = sp(c).edit().putString("chartType", v).apply()
 
