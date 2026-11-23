@@ -11,7 +11,10 @@ object SignalDetector {
     fun detectReversalSignal(
         candles: List<Candle>,
         liq: LiqStats?,
-        liqThreshold: Double
+        liqThreshold: Double,
+        flowDeltaUsd: Double? = null,
+        cvdTrendUsd: Double? = null,
+        turnoverAcceleration: Double? = null
     ): SignalResult {
         if (candles.size < 8) return SignalResult("", 0L, "")
         val p = candles[candles.size - 3] // pattern candle
@@ -64,9 +67,15 @@ object SignalDetector {
         if (confirmed) score += 25
         if (p.volume >= avgVolume * 1.5) score += 15
         if (c.volume >= avgVolume * 1.3) score += 10
+        val directionalDelta = if (type == "long") flowDeltaUsd else flowDeltaUsd?.let { -it }
+        if (directionalDelta != null && directionalDelta > 0.0) score += 5
+        val directionalCvd = if (type == "long") cvdTrendUsd else cvdTrendUsd?.let { -it }
+        if (directionalCvd != null && directionalCvd > 0.0) score += 5
+        if (turnoverAcceleration != null && turnoverAcceleration >= 2.0) score += 5
         if (liq != null && liq.total15m >= liqThreshold &&
             ((type == "long" && liq.dominantIsLong) ||
              (type == "short" && !liq.dominantIsLong))) score += 20
+        score = score.coerceIn(0, 100)
         val strength = when {
             score >= 85 -> "strong"
             score >= 70 -> "medium"
