@@ -28,6 +28,7 @@ class ChartView(context: Context) : View(context) {
     private var chartType: String = "candles"
     private var theme: String = "dark"
     private var lsPoints: List<LsPoint> = emptyList()
+    private var volumeBars: List<VolumeBar> = emptyList()
     private var signalMarkers: List<SignalMarker> = emptyList()
     private data class CandleMarker(val candleIndex: Int, val type: String, val level: Int)
     private var volumeMarkers: List<CandleMarker> = emptyList()
@@ -227,6 +228,12 @@ class ChartView(context: Context) : View(context) {
     fun resetZoomY() {
         manualZoomY = false
         recomputeYRange()
+        heavyBitmap = null
+        invalidate()
+    }
+
+    fun setVolumeBars(bars: List<VolumeBar>) {
+        volumeBars = bars
         heavyBitmap = null
         invalidate()
     }
@@ -538,7 +545,64 @@ canvas.save()
         textPaint.color = labelColor
         canvas.drawText("VOL", pL + 4, volTop + volH - 4, textPaint)
 
-        if (lsPoints.size >= 2) {
+        if (volumeBars.isNotEmpty() && volumeBars.size == candles.size) {
+            // Volume delta histogram (% of each bar's notional) and cumulative
+            // volume delta. Both share the exact x-coordinates of price candles.
+            val panelBottom = lsTop + lsH
+            val mid = lsTop + lsH * 0.5f
+            val half = lsH * 0.43f
+            val zeroPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = if (dark) Color.rgb(125, 125, 145) else Color.GRAY
+                strokeWidth = 1.3f
+            }
+            val barPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+            val cvdPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.rgb(255, 190, 75)
+                strokeWidth = 2.4f
+                style = Paint.Style.STROKE
+            }
+            val path = android.graphics.Path()
+            // CVD is calculated from the beginning of the retained history,
+            // not reset at the left edge of the viewport.
+            var cumulative = 0.0
+            val cvd = ArrayList<Double>(volumeBars.size)
+            for (bar in volumeBars) {
+                cumulative += bar.deltaUsdt
+                cvd.add(cumulative)
+            }
+            val visibleCvd = cvd.subList(start, end)
+            val cvdMin = visibleCvd.minOrNull() ?: 0.0
+            val cvdMax = visibleCvd.maxOrNull() ?: 0.0
+            val cvdRange = (cvdMax - cvdMin).coerceAtLeast(1.0)
+            canvas.save()
+            canvas.clipRect(pL, lsTop, w - pR, panelBottom)
+            canvas.drawLine(pL, mid, w - pR, mid, zeroPaint)
+            for (i in slice.indices) {
+                val bar = volumeBars[start + i]
+                val x = pL + i * step + step / 2
+                val pct = if (bar.volumeUsdt > 0.0)
+                    (bar.deltaUsdt / bar.volumeUsdt).coerceIn(-1.0, 1.0).toFloat()
+                    else 0f
+                val y = mid - pct * half
+                barPaint.color = if (pct >= 0f) upColor else downColor
+                canvas.drawRect(x - bodyW / 2, min(mid, y), x + bodyW / 2,
+                    max(mid, y).coerceAtLeast(min(mid, y) + 1f), barPaint)
+                // CVD uses its own visible-range scale, shown as a trend line.
+                val cvdY = lsTop + lsH * 0.12f +
+                    ((cvdMax - visibleCvd[i]) / cvdRange * lsH * 0.76f).toFloat()
+                if (i == 0) path.moveTo(x, cvdY) else path.lineTo(x, cvdY)
+            }
+            canvas.drawPath(path, cvdPaint)
+            canvas.restore()
+            textPaint.color = labelColor
+            canvas.drawText("Δ% / CVD", pL + 4, lsTop + 14f, textPaint)
+            textPaint.color = upColor
+            canvas.drawText("+100%", w - pR + 5f, lsTop + 10f, textPaint)
+            textPaint.color = labelColor
+            canvas.drawText("0", w - pR + 5f, mid + 4f, textPaint)
+            textPaint.color = downColor
+            canvas.drawText("-100%", w - pR + 5f, panelBottom - 2f, textPaint)
+        } else if (lsPoints.size >= 2) {
             val gridP = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = if (dark) Color.rgb(40, 40, 50) else Color.rgb(210, 210, 220)
                 strokeWidth = 1f
