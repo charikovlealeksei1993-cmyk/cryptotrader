@@ -195,7 +195,7 @@ object NotificationHelper {
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setContentIntent(pending)
                 .setAutoCancel(true)
-                .setSilent(false)
+                .setSilent(true)
 
             if (Build.VERSION.SDK_INT < 33 ||
                 context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
@@ -276,9 +276,15 @@ object NotificationHelper {
 
     fun playSoundFor(context: Context, type: String) {
         try {
+            val fallback = if (type.startsWith("signal_")) {
+                // Different pitches by strength and direction are handled by
+                // user-selected sounds; default system tone remains audible.
+                Prefs.soundUriFor(context, "signal")
+            } else null
             val uri = Prefs.soundUriFor(context, type)
+                ?: fallback
                 ?: Prefs.soundUri(context)
-                ?: return
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
             RingtoneManager.getRingtone(context.applicationContext, uri)?.play()
         } catch (_: Exception) {}
     }
