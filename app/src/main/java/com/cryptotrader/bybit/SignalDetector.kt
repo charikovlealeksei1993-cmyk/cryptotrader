@@ -88,6 +88,8 @@ object SignalDetector {
         }
         val confirmed = if (type == "long") c.close > c.open && c.close > p.close
                         else c.close < c.open && c.close < p.close
+        // Do not publish an entry signal for a pattern without a closed confirmation candle.
+        if (!confirmed) return SignalResult("", 0L, "")
         val avgVolume = candles.subList(candles.size - 8, candles.size - 3)
             .map { it.volume }.average().coerceAtLeast(0.000001)
         var score = 30
@@ -102,9 +104,7 @@ object SignalDetector {
         // Activity speed and adaptive notional volume are correlated; cap their vote.
         if ((turnoverAcceleration ?: 0.0) >= 2.0 ||
             (adaptiveVolumeRatio ?: 0.0) >= 1.8) score += 10
-        if (liq != null && liq.total15m >= liqThreshold &&
-            ((type == "long" && liq.dominantIsLong) ||
-             (type == "short" && !liq.dominantIsLong))) score += 20
+        // Liquidation direction is context, not evidence that a reversal will succeed.
         score = score.coerceIn(0, 100)
         val strength = when {
             score >= 85 -> "strong"
