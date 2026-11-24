@@ -4,6 +4,7 @@ on:
     branches: [feature/trap-signals-v14]
     paths:
       - 'tools/SignalReplay.kt'
+      - 'tools/parameter_sweep.py'
       - 'tools/download_signal_history.py'
       - '.github/workflows/signal-history.yml'
       - 'app/src/main/java/com/cryptotrader/bybit/SignalDetector.kt'
@@ -53,9 +54,14 @@ jobs:
           read -r -a frames <<< "$TIMEFRAMES"
           java -jar replay.jar "${frames[@]}"
           cat signal-summary.txt >> "$GITHUB_STEP_SUMMARY"
+      - name: Sweep application SL/TP presets
+        run: |
+          python tools/parameter_sweep.py
+          echo "SL/TP sweep saved in parameter-sweep.csv" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
           name: historical-signal-results
           path: |
             signal-results.csv
             signal-summary.txt
+            parameter-sweep.csv
