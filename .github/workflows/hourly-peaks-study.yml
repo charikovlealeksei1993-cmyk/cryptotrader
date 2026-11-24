@@ -4,6 +4,7 @@ on:
     branches: [feature/trap-signals-v14]
     paths:
       - 'tools/hourly_peaks_study.py'
+      - 'tools/hourly_peak_candle_breakdown.py'
       - '.github/workflows/hourly-peaks-study.yml'
   workflow_dispatch:
 permissions:
@@ -21,6 +22,8 @@ jobs:
           fail-on-cache-miss: true
       - name: Identify hourly swing highs and compare their conditions
         run: python3 tools/hourly_peaks_study.py | tee hourly-peaks-log.txt
+      - name: Analyze peak candle morphology and volumes
+        run: python3 tools/hourly_peak_candle_breakdown.py | tee candle-breakdown-log.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -28,3 +31,4 @@ jobs:
           path: |
             hourly-peaks-results/
             hourly-peaks-log.txt
+            candle-breakdown-log.txt
