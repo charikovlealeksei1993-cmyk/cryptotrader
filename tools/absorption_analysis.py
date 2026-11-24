@@ -1,5 +1,6 @@
 """Independent minute-by-minute SHORT absorption hypothesis, exploratory."""
 import csv
+csv.field_size_limit(10000000)
 from collections import defaultdict
 from datetime import datetime, timezone
 SPLIT=1792886400000
