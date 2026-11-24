@@ -2,30 +2,49 @@ package com.cryptotrader.bybit
 
 import java.io.File
 
-fun main() {
+fun main(args: Array<String>) {
     val candles = mutableListOf<Candle>()
+    val flows = mutableListOf<Triple<Double?,Double?,Double?>>()
+    var prior = emptyList<Pair<Double,Double>>()
     val entryEnd = java.time.Instant.parse("2026-11-09T00:00:00Z").toEpochMilli()
     File("replay-input.csv").forEachLine { line ->
-        val a = line.split(",")
+        val a = line.split(",", limit = 8)
         candles.add(Candle(a[0].toLong(),a[1].toDouble(),a[2].toDouble(),a[3].toDouble(),a[4].toDouble(),a[5].toDouble()))
+        val current = if(candles.last().time < entryEnd) a[7].split(";").map { val v=it.split(":"); v[0].toDouble() to v[1].toDouble() } else emptyList()
+        val previous = prior.takeLast((5000-current.size).coerceAtLeast(0))
+        val delta = if(previous.isNotEmpty()) current.sumOf { it.second } else null
+        val cvd = delta?.minus(previous.sumOf { it.second })
+        val prevUsd = previous.sumOf { it.first }
+        flows.add(Triple(delta,cvd,if(prevUsd>0) current.sumOf { it.first } / prevUsd else null))
+        prior = current
     }
-    val bars = candles.chunked(60).filter { chunk ->
-        chunk.size == 60 && chunk.first().time % 3600000L == 0L &&
+    val timeframes = if (args.isEmpty()) listOf(1,5,15,30,60) else args.map { it.toInt() }.distinct()
+    require(timeframes.all { it in listOf(1,5,15,30,60) })
+    File("signal-results.csv").writeText("tf,time,strength,side,pattern,entry,exitTime,exitPrice,status,returnPct\n")
+    File("signal-summary.txt").writeText("BTCUSDT; entries Oct 10-Nov 8 UTC; exits through Nov 22; TP 5%, SL 2%; independent trades, no fees; next-open entry; M1 exits; approximate live timing.\n")
+    for (tf in timeframes) replay(tf,candles,flows,entryEnd)
+    print(File("signal-summary.txt").readText())
+}
+
+fun replay(tf: Int, candles: List<Candle>, flows: List<Triple<Double?,Double?,Double?>>, entryEnd: Long) {
+    val interval = tf * 60000L
+    val bars = if(tf == 1) candles else candles.chunked(tf).filter { chunk ->
+        chunk.size == tf && chunk.first().time % interval == 0L &&
             chunk.zipWithNext().all { (a,b) -> b.time-a.time == 60000L }
     }.map { chunk -> Candle(chunk.first().time,chunk.first().open,chunk.maxOf { it.high },chunk.minOf { it.low },chunk.last().close,chunk.sumOf { it.volume }) }
     val minuteIndex = candles.withIndex().associate { it.value.time to it.index }
     val results = File("signal-results.csv")
-    results.writeText("time,strength,side,pattern,entry,exitTime,exitPrice,status,returnPct\n")
     val report = File("signal-summary.txt")
     val counts = mutableMapOf<String, Int>()
     val pnl = mutableMapOf<String, Double>()
     for (i in 6 until bars.size-1) {
-        if ((i-5..i+1).any { bars[it].time-bars[it-1].time != 3600000L }) continue
+        if ((i-5..i+1).any { bars[it].time-bars[it-1].time != interval }) continue
         if(bars[i+1].time >= entryEnd) break
         val entryIndex = minuteIndex.getValue(bars[i+1].time)
         val entry = bars[i+1].open
-        val forming = Candle(bars[i].time+3600000L,entry,entry,entry,entry,0.0)
-        val signal = SignalDetector.detectReversalSignal(bars.subList(i-6,i+1)+forming,null,0.0,null,null,null,null,60)
+        val forming = Candle(bars[i].time+interval,entry,entry,entry,entry,0.0)
+        val (delta,cvd,speed) = if(tf == 1) flows[i] else Triple(null,null,null)
+        val signal = SignalDetector.detectReversalSignal(bars.subList(i-6,i+1)+forming,null,0.0,delta,cvd,speed,null,tf)
         if(signal.strength !in listOf("weak","medium","strong") || signal.type !in listOf("long","short")) continue
         val long = signal.type=="long"
         val tp = entry * if(long) 1.05 else 0.95
@@ -49,9 +68,8 @@ fun main() {
         val key = signal.strength+" "+signal.type+" "+status
         counts[key]=(counts[key]?:0)+1
         pnl[key]=(pnl[key]?:0.0)+ret
-        results.appendText(listOf(bars[i+1].time,signal.strength,signal.type,signal.pattern,entry,exitTime,exitPrice,status,ret).joinToString(",")+"\n")
+        results.appendText(listOf(tf,bars[i+1].time,signal.strength,signal.type,signal.pattern,entry,exitTime,exitPrice,status,ret).joinToString(",")+"\n")
     }
-    report.writeText("BTCUSDT H1 all signal strengths; entries Oct 10-Nov 8 UTC; exit-only Nov 9-22 UTC; independent overlapping trades; TP 5%, SL 2%; no fees; next-open entry; open positions marked at last close, not realized; ambiguous candles conservatively SL; H1 flow inputs disabled as in app; M1 exit checks; approximate live signal timing.\n")
+    report.appendText("\nTF=$tf minutes\n")
     for((key,n) in counts.toSortedMap()) report.appendText("$key: count=$n, sumReturnPct=${pnl[key]}\n")
-    print(report.readText())
 }
