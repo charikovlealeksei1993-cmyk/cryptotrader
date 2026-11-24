@@ -5,6 +5,7 @@ on:
     paths:
       - 'tools/SignalReplay.kt'
       - 'tools/parameter_sweep.py'
+      - 'tools/regime_analysis.py'
       - 'tools/download_signal_history.py'
       - '.github/workflows/signal-history.yml'
       - 'app/src/main/java/com/cryptotrader/bybit/SignalDetector.kt'
@@ -58,6 +59,10 @@ jobs:
         run: |
           python tools/parameter_sweep.py
           echo "SL/TP sweep saved in parameter-sweep.csv" >> "$GITHUB_STEP_SUMMARY"
+      - name: Analyze rising, falling and sideways market regimes
+        run: |
+          python tools/regime_analysis.py
+          echo 'Market regime analysis saved in regime-results.csv' >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
           name: historical-signal-results
@@ -65,3 +70,4 @@ jobs:
             signal-results.csv
             signal-summary.txt
             parameter-sweep.csv
+            regime-results.csv
