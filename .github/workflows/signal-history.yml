@@ -45,7 +45,7 @@ jobs:
         run: python tools/download_signal_history.py
       - name: Validate history
         run: |
-          python -c 'import csv; f=open("replay-input.csv"); rows=csv.reader(f); start=1791590400000; n=0; exec("for r in rows:\n assert int(r[0]) == start+n*60000 and len(r)==8\n n+=1"); assert n==44*1440, n'
+          python -c 'import csv; csv.field_size_limit(10000000); f=open("replay-input.csv"); rows=csv.reader(f); start=1791590400000; n=0; exec("for r in rows:\n assert int(r[0]) == start+n*60000 and len(r)==8\n n+=1"); assert n==44*1440, n'
       - name: Replay signals
         env:
           TIMEFRAMES: ${{ inputs.timeframes || '1 5 15 30 60' }}
