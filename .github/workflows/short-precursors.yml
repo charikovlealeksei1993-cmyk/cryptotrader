@@ -1,0 +1,72 @@
+name: SHORT precursor experiment 30
+on:
+  push:
+    branches: [feature/trap-signals-v14]
+    paths: ['.github/workflows/short-precursors.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  study:
+    strategy:
+      fail-fast: false
+      matrix:
+        experiment: [30]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        with:
+          path: replay-input.csv
+          key: btcusdt-history-v1-${{ hashFiles('tools/download_signal_history.py') }}
+          fail-on-cache-miss: true
+      - name: Compare downside events with ordinary windows
+        run: |
+          python -m pip install numpy scikit-learn
+          python - <<'PY'
+          import csv,numpy as np
+          from sklearn.tree import DecisionTreeClassifier,export_text
+          csv.field_size_limit(10000000)
+          a=[];flow=[];cap=[0]
+          with open("replay-input.csv") as f:
+              for r in csv.reader(f):
+                  a.append([float(x) for x in r[:6]])
+                  d=[float(x.split(":")[1]) for x in r[7].split(";") if x]
+                  flow.append([sum(x for x in d if x>0),-sum(x for x in d if x<0)])
+                  cap.append(cap[-1]+(int(r[6])>=5000))
+          a=np.array(a);p=np.vstack([np.zeros(2),np.cumsum(flow,axis=0)])
+          assert len(a)==44*1440 and np.all(a[:,0]==1791590400000+np.arange(len(a))*60000)
+          with open("precursor-results.csv","w") as f:
+              out=csv.writer(f);out.writerow(["horizon","model","windows","events","signals","hits","false_alarms","base_rate","precision","recall","wins","losses","gross_gains","gross_losses","net_usd"])
+              for H,drop in [(15,.003),(60,.005),(240,.01)]:
+                  X=[];Y=[];R=[];I=[];names=[]
+                  for i in range(60,len(a)-H,H):
+                      if a[i,0]>=1794182400000:break
+                      if cap[i]!=cap[i-60]:continue
+                      x=[];names=[]
+                      for lo,hi in [(60,30),(30,15),(15,5),(5,0)]:
+                          j,k=i-lo,i-hi
+                          b,s=p[k]-p[j];ret=100*np.log(a[k-1,4]/a[j,1])
+                          x.extend([ret,np.log(a[j:k,2].max()/a[j:k,3].min()),np.log1p(a[j:k,5].mean()),(b-s)/max(b+s,1),np.log1p(b/(k-j)),np.log1p(s/(k-j)),ret/max((b+s)/1e6,1)])
+                          names.extend([f"{v}_{lo}_{hi}" for v in ["return","range","volume","imbalance","buy","sell","efficiency"]])
+                      X.append(x);I.append(i)
+                      R.append(100*(1-a[i+H,1]/a[i,1])-.11)
+                      Y.append(a[i+H,1]<=a[i,1]*(1-drop))
+                  X=np.array(X);Y=np.array(Y);R=np.array(R);I=np.array(I)
+                  split=np.searchsorted(a[:,0],1792886400000)
+                  tr=I+H<split-60;te=I>=split
+                  if len(np.unique(Y[tr]))<2 or not te.any():continue
+                  for model,cols in [("price_volume",[j for j in range(28) if j%7<3]),("full",list(range(28)))]:
+                      tree=DecisionTreeClassifier(max_depth=3,min_samples_leaf=20,class_weight="balanced",random_state=30)
+                      tree.fit(X[tr][:,cols],Y[tr])
+                      print(H,model,export_text(tree,feature_names=[names[j] for j in cols]),flush=True)
+                      mask=tree.predict(X[te][:,cols]).astype(bool)
+                      y=Y[te];r=R[te][mask];n=int(mask.sum());hits=int(y[mask].sum())
+                      row=[H,model,len(y),int(y.sum()),n,hits,n-hits,float(y.mean()),hits/n if n else None,hits/max(1,int(y.sum())),int((r>0).sum()),int((r<=0).sum()),round(float(r[r>0].sum()),2),round(float(-r[r<=0].sum()),2),round(float(r.sum()),2)]
+                      out.writerow(row);print(row,flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: short-precursor-results
+          path: precursor-results.csv
