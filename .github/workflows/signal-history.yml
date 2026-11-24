@@ -8,12 +8,17 @@ on:
       - '.github/workflows/signal-history.yml'
       - 'app/src/main/java/com/cryptotrader/bybit/SignalDetector.kt'
   workflow_dispatch:
+    inputs:
+      timeframes:
+        description: 'Minutes separated by spaces (1 5 15 30 60)'
+        default: '1 5 15 30 60'
+        type: string
 permissions:
   contents: read
 jobs:
   replay:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -29,11 +34,24 @@ jobs:
           # AppState is unrelated to the detector and references Android UI models.
           python -c 'import pathlib,re; s=pathlib.Path("app/src/main/java/com/cryptotrader/bybit/Models.kt").read_text(); pathlib.Path("ReplayModels.kt").write_text(re.sub(r"data class AppState\([\s\S]*?\n\)\n", "", s))'
           kotlinc "$src/SignalDetector.kt" ReplayModels.kt tools/SignalReplay.kt -include-runtime -d replay.jar
+      - name: Restore prepared history
+        id: history
+        uses: actions/cache@v4
+        with:
+          path: replay-input.csv
+          key: btcusdt-history-v1-${{ hashFiles('tools/download_signal_history.py') }}
       - name: Download historical trades
+        if: steps.history.outputs.cache-hit != 'true'
         run: python tools/download_signal_history.py
-      - name: Replay signals
+      - name: Validate history
         run: |
-          java -jar replay.jar
+          python -c 'import csv; f=open("replay-input.csv"); rows=csv.reader(f); start=1791590400000; n=0; exec("for r in rows:\n assert int(r[0]) == start+n*60000 and len(r)==8\n n+=1"); assert n==44*1440, n'
+      - name: Replay signals
+        env:
+          TIMEFRAMES: ${{ inputs.timeframes || '1 5 15 30 60' }}
+        run: |
+          read -r -a frames <<< "$TIMEFRAMES"
+          java -jar replay.jar "${frames[@]}"
           cat signal-summary.txt >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
