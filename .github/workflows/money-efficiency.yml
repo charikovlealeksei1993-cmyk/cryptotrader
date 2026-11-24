@@ -1,0 +1,76 @@
+name: Money efficiency experiment 28
+on:
+  push:
+    branches: [feature/trap-signals-v14]
+    paths: ['.github/workflows/money-efficiency.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  study:
+    strategy:
+      fail-fast: false
+      matrix:
+        experiment: [28]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        with:
+          path: replay-input.csv
+          key: btcusdt-history-v1-${{ hashFiles('tools/download_signal_history.py') }}
+          fail-on-cache-miss: true
+      - name: Measure price response per dollar
+        run: |
+          python - <<'PY'
+          import csv,collections,random
+          csv.field_size_limit(10000000)
+          t=[];o=[];h=[];l=[];c=[];b=[0.];s=[0.];cap=[0]
+          with open("replay-input.csv") as f:
+              for r in csv.reader(f):
+                  t.append(int(r[0]));o.append(float(r[1]));h.append(float(r[2]));l.append(float(r[3]));c.append(float(r[4]))
+                  d=[float(x.split(":")[1]) for x in r[7].split(";") if x]
+                  b.append(b[-1]+sum(x for x in d if x>0));s.append(s[-1]-sum(x for x in d if x<0))
+                  cap.append(cap[-1]+(int(r[6])>=5000))
+          assert len(t)==44*1440 and all(x==1791590400000+i*60000 for i,x in enumerate(t))
+          groups=collections.defaultdict(list)
+          for i in range(30,len(t)-1440,15):
+              if t[i]>=1794182400000:break
+              if cap[i]!=cap[i-30]:continue
+              period="train" if t[i]<1792886400000 else "test"
+              if period=="train" and t[i+1440]>=1792886400000:continue
+              for direction in [1,-1]:
+                  flow=b if direction==1 else s
+                  opp=s if direction==1 else b
+                  a=flow[i-15]-flow[i-30];z=flow[i]-flow[i-15]
+                  if min(a,z)<100000 or not .5<=z/a<=2:continue
+                  if a<=opp[i-15]-opp[i-30] or z<=opp[i]-opp[i-15]:continue
+                  e1=direction*(c[i-16]/o[i-30]-1)/a
+                  e2=direction*(c[i-1]/o[i-15]-1)/z
+                  if e1<=0:continue
+                  label="weak" if e2<.5*e1 else "strong" if e2>2*e1 else "stable"
+                  groups[period,direction,label].append(i)
+          def evaluate(indices,d):
+              last=0;profits=[];tp=sl=timeout=0
+              for i in sorted(indices):
+                  if i<last:continue
+                  entry=o[i]
+                  for j in range(i,i+1440):
+                      if (l[j]<=entry*.95 if d==1 else h[j]>=entry*1.05):ret=-5;sl+=1;break
+                      if (h[j]>=entry*1.10 if d==1 else l[j]<=entry*.90):ret=10;tp+=1;break
+                  else:j=i+1440;ret=d*100*(o[j]/entry-1);timeout+=1
+                  last=j+1;profits.append(ret-.11)
+              gain=sum(x for x in profits if x>0);loss=-sum(x for x in profits if x<=0)
+              return [len(profits),sum(x>0 for x in profits),sum(x<=0 for x in profits),round(gain,2),round(loss,2),round(gain-loss,2),tp,sl,timeout]
+          with open("money-results.csv","w") as f:
+              w=csv.writer(f);w.writerow(["period","pressure_direction","cohort","trade_direction","candidates","trades","wins","losses","gains","losses_usd","net","tp","sl","timeout"])
+              for (period,d,label),indices in sorted(groups.items()):
+                  for trade in [1,-1]:
+                      row=[period,d,label,trade,len(indices),*evaluate(indices,trade)]
+                      w.writerow(row);print(row)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: money-efficiency-results
+          path: money-results.csv
