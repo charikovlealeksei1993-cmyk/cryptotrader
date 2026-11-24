@@ -9,8 +9,8 @@ fun main() {
         val a = line.split(",")
         candles.add(Candle(a[0].toLong(),a[1].toDouble(),a[2].toDouble(),a[3].toDouble(),a[4].toDouble(),a[5].toDouble()))
     }
-    val bars = candles.chunked(30).filter { chunk ->
-        chunk.size == 30 && chunk.first().time % 1800000L == 0L &&
+    val bars = candles.chunked(60).filter { chunk ->
+        chunk.size == 60 && chunk.first().time % 3600000L == 0L &&
             chunk.zipWithNext().all { (a,b) -> b.time-a.time == 60000L }
     }.map { chunk -> Candle(chunk.first().time,chunk.first().open,chunk.maxOf { it.high },chunk.minOf { it.low },chunk.last().close,chunk.sumOf { it.volume }) }
     val minuteIndex = candles.withIndex().associate { it.value.time to it.index }
@@ -20,12 +20,12 @@ fun main() {
     val counts = mutableMapOf<String, Int>()
     val pnl = mutableMapOf<String, Double>()
     for (i in 6 until bars.size-1) {
-        if ((i-5..i+1).any { bars[it].time-bars[it-1].time != 1800000L }) continue
+        if ((i-5..i+1).any { bars[it].time-bars[it-1].time != 3600000L }) continue
         if(bars[i+1].time >= entryEnd) break
         val entryIndex = minuteIndex.getValue(bars[i+1].time)
         val entry = bars[i+1].open
-        val forming = Candle(bars[i].time+1800000L,entry,entry,entry,entry,0.0)
-        val signal = SignalDetector.detectReversalSignal(bars.subList(i-6,i+1)+forming,null,0.0,null,null,null,null,30)
+        val forming = Candle(bars[i].time+3600000L,entry,entry,entry,entry,0.0)
+        val signal = SignalDetector.detectReversalSignal(bars.subList(i-6,i+1)+forming,null,0.0,null,null,null,null,60)
         if(signal.strength !in listOf("weak","medium","strong") || signal.type !in listOf("long","short")) continue
         val long = signal.type=="long"
         val tp = entry * if(long) 1.05 else 0.95
@@ -51,7 +51,7 @@ fun main() {
         pnl[key]=(pnl[key]?:0.0)+ret
         results.appendText(listOf(bars[i+1].time,signal.strength,signal.type,signal.pattern,entry,exitTime,exitPrice,status,ret).joinToString(",")+"\n")
     }
-    report.writeText("BTCUSDT M30 all signal strengths; entries Oct 10-Nov 8 UTC; exit-only Nov 9-22 UTC; independent overlapping trades; TP 5%, SL 2%; no fees; next-open entry; open positions marked at last close, not realized; ambiguous candles conservatively SL; M30 flow inputs disabled as in app; M1 exit checks; approximate live signal timing.\n")
+    report.writeText("BTCUSDT H1 all signal strengths; entries Oct 10-Nov 8 UTC; exit-only Nov 9-22 UTC; independent overlapping trades; TP 5%, SL 2%; no fees; next-open entry; open positions marked at last close, not realized; ambiguous candles conservatively SL; H1 flow inputs disabled as in app; M1 exit checks; approximate live signal timing.\n")
     for((key,n) in counts.toSortedMap()) report.appendText("$key: count=$n, sumReturnPct=${pnl[key]}\n")
     print(report.readText())
 }
