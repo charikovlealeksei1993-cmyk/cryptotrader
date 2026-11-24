@@ -1,0 +1,31 @@
+name: Monthly stability of experiment 38 strategies
+on:
+  push:
+    branches: [feature/trap-signals-v14]
+    paths:
+      - 'tools/monthly_stability.py'
+      - '.github/workflows/monthly-stability.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  monthly-stability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recalculate monthly results from exact experiment 38 trade logs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 tools/monthly_stability.py | tee monthly-log.txt
+          test -s monthly-results/monthly.csv
+          test -s monthly-results/summary.csv
+      - uses: actions/upload-artifact@v4
+        with:
+          name: monthly-stability-experiment-38
+          path: |
+            monthly-results/
+            monthly-log.txt
