@@ -1,0 +1,78 @@
+name: Flow exhaustion and sell absorption
+on:
+  push:
+    branches: [feature/trap-signals-v14]
+    paths: ['.github/workflows/flow-experiments.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  study:
+    strategy:
+      fail-fast: false
+      matrix:
+        experiment: [22, 23]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        with:
+          path: replay-input.csv
+          key: btcusdt-history-v1-${{ hashFiles('tools/download_signal_history.py') }}
+          fail-on-cache-miss: true
+      - name: Analyze signed trade flow
+        env:
+          EXP: ${{ matrix.experiment }}
+        run: |
+          python - <<'PY'
+          import csv, os, collections
+          csv.field_size_limit(10000000)
+          exp=int(os.environ["EXP"])
+          t=[];o=[];c=[];v=[0.];buy=[0.];sell=[0.];cap=[0]
+          with open("replay-input.csv") as f:
+              for r in csv.reader(f):
+                  assert int(r[0])==1791590400000+len(t)*60000
+                  t.append(int(r[0]));o.append(float(r[1]));c.append(float(r[4]))
+                  v.append(v[-1]+float(r[5]))
+                  d=[float(x.split(":")[1]) for x in r[7].split(";") if x]
+                  buy.append(buy[-1]+sum(x for x in d if x>0))
+                  sell.append(sell[-1]-sum(x for x in d if x<0))
+                  cap.append(cap[-1]+(int(r[6])>=5000))
+          assert len(t)==44*1440
+          groups=collections.defaultdict(list);last={};excluded=0
+          H=240;split=1792886400000
+          for i in range(360,len(t)-H):
+              if t[i]>=1794182400000:break
+              j=i-15 if exp==22 else i
+              direction=1 if exp==22 else -1
+              a=direction*(c[j-16]/c[j-31]-1)
+              b=direction*(c[j-1]/c[j-16]-1)
+              base=(v[j-30]-v[j-360])/330
+              if a<=0 or direction*(c[j-1]/c[j-31]-1)<.003 or base<=0 or (v[j]-v[j-30])/30<1.5*base or b>=a*.5:continue
+              if cap[i]-cap[j-30]:
+                  excluded+=1;continue
+              flow=buy if exp==22 else sell
+              early=flow[j-15]-flow[j-30];late=flow[j]-flow[j-15]
+              if exp==22:
+                  if late<=early or late<=0:continue
+                  label="exhaustion" if flow[i]-flow[j]<.5*late else "persistent_buying"
+              else:
+                  label="sell_absorption" if late>early else "other_slowing"
+              period="train" if t[i]<split else "test"
+              if period=="train" and t[i+H]>=split:continue
+              key=(period,label)
+              if i<last.get(key,0):continue
+              last[key]=i+H
+              groups[key].append(-direction*100*(o[i+H]/o[i]-1)-.11)
+          with open("flow-results.csv","w",newline="") as f:
+              w=csv.writer(f);w.writerow(["experiment","period","cohort","n","mean_net_pct","positive_pct"])
+              for (period,label),r in sorted(groups.items()):
+                  row=[exp,period,label,len(r),round(sum(r)/len(r),4),round(100*sum(x>0 for x in r)/len(r),2)]
+                  w.writerow(row);print(row)
+          print("Excluded capped windows:",excluded)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flow-experiment-${{ matrix.experiment }}
+          path: flow-results.csv
