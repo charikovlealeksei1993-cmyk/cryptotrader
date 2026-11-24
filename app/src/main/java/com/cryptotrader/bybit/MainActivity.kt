@@ -182,6 +182,7 @@ class MainActivity : Activity() {
         override fun run() {
             refreshLiveSpeeds()
             refreshLiqStatsCache()
+            if (!isChartMode && ::listContainer.isInitialized) refreshLiquidationHighlights()
             scanner.postDelayed(this, liveInterval)
         }
     }
@@ -2407,6 +2408,75 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
         return if (esc) "$base 🔥" else base
     }
 
+    // Presentation only: recent exchange events drive a fading highlight.
+    private data class LiquidationCardUi(val symbol: String, val line: TextView)
+
+    private fun refreshLiquidationHighlights() {
+        for (i in 0 until listContainer.childCount) {
+            val row = listContainer.getChildAt(i)
+            val ui = row.tag as? LiquidationCardUi ?: continue
+            updateLiquidationHighlight(row, ui)
+        }
+    }
+
+    private fun updateLiquidationHighlight(row: View, ui: LiquidationCardUi) {
+        val now = System.currentTimeMillis()
+        val events = synchronized(MarketState.liqLock) {
+            MarketState.liqBuffer[ui.symbol]?.filter {
+                it.time in (now - 360_000L)..now && it.usd > 0.0
+            } ?: emptyList()
+        }
+        val recent = events.filter { it.time >= now - 180_000L }
+        val live = recent.filter { it.time >= now - 60_000L }
+        val long = live.filter { it.isLong }.sumOf { it.usd }
+        val short = live.filter { !it.isLong }.sumOf { it.usd }
+        val base = Prefs.row(this)
+        val line = cardLiquidations(ui.symbol)
+        ui.line.text = line
+        ui.line.visibility = if (line.isEmpty()) View.GONE else View.VISIBLE
+        ui.line.setTextColor(Prefs.textDim(this))
+        ui.line.setBackgroundColor(Color.TRANSPARENT)
+        row.setBackgroundColor(base)
+        if (live.isEmpty() || long == short) return
+
+        val color = if (long > short) Color.rgb(230, 65, 65) else Color.rgb(30, 185, 100)
+        val latest = live.maxOf { it.time }
+        val freshness = (1.0 - (now - latest) / 60_000.0).coerceIn(0.0, 1.0)
+        val volume = (kotlin.math.ln(1.0 + long + short) / kotlin.math.ln(50001.0)).coerceIn(0.0, 1.0)
+        val intensity = freshness * (0.35 + 0.65 * volume)
+        fun blend(amount: Double): Int {
+            val f = amount.coerceIn(0.0, 1.0)
+            return Color.rgb(
+                (Color.red(base) * (1 - f) + Color.red(color) * f).toInt(),
+                (Color.green(base) * (1 - f) + Color.green(color) * f).toInt(),
+                (Color.blue(base) * (1 - f) + Color.blue(color) * f).toInt()
+            )
+        }
+        ui.line.setBackgroundColor(blend(0.25 * intensity))
+
+        // Read existing cascade status; also recognize the same onset condition
+        // visually for symbols whose chart has not been opened.
+        val previousUsd = events.filter { it.time < now - 180_000L }.sumOf { it.usd }
+        val recentUsd = recent.sumOf { it.usd }
+        val onset = recent.size >= 3 && recentUsd >= 50_000.0 && recentUsd > previousUsd * 1.5
+        val stage = if (now - (cascadeLastCheck[ui.symbol] ?: 0L) <= 420_000L)
+            cascadeStages[ui.symbol] ?: 0 else 0
+        val cascadeFactor = when {
+            stage == 4 -> 0.0
+            onset || stage == 1 -> 1.0
+            stage == 2 -> 0.6
+            stage == 3 -> 0.3
+            else -> 0.0
+        }
+        if (cascadeFactor > 0.0) {
+            row.background = GradientDrawable().apply {
+                setColor(blend(0.17 * intensity * cascadeFactor))
+                setStroke((2 * resources.displayMetrics.density).toInt().coerceAtLeast(1),
+                    blend(0.85 * intensity * cascadeFactor))
+            }
+        }
+    }
+
     // Signal-first card: show the decision, not raw market telemetry.
     private fun makeScanRow(r: ScanResult): View {
         val row = LinearLayout(this)
@@ -2499,15 +2569,13 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
             confirmation.textSize = 14f
             row.addView(confirmation)
         }
-        val liquidationLine = cardLiquidations(r.symbol)
-        if (liquidationLine.isNotEmpty()) {
-            val liquidationView = TextView(this)
-            liquidationView.text = liquidationLine
-            liquidationView.setTextColor(Prefs.textDim(this))
-            liquidationView.textSize = 14f
-            liquidationView.setPadding(0, 8, 0, 0)
-            row.addView(liquidationView)
-        }
+        val liquidationView = TextView(this)
+        liquidationView.textSize = 14f
+        liquidationView.setPadding(0, 8, 0, 0)
+        row.addView(liquidationView)
+        val liquidationUi = LiquidationCardUi(r.symbol, liquidationView)
+        row.tag = liquidationUi
+        updateLiquidationHighlight(row, liquidationUi)
         val cascadeLine = cardCascadeStatus(r.symbol)
         if (cascadeLine.isNotEmpty()) {
             val cascadeView = TextView(this)
