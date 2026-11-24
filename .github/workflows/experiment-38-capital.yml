@@ -1,0 +1,26 @@
+name: Experiment 38 - 10000 RUB capital constrained BTC replay
+on:
+  push:
+    branches: [feature/trap-signals-v14]
+    paths: ['.github/workflows/experiment-38-capital.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  capital-replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run capital constrained simulation
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 tools/capital_replay.py | tee capital-log.txt
+      - name: Upload reports and trades
+        uses: actions/upload-artifact@v4
+        with:
+          name: experiment-38-capital-10000rub
+          path: |
+            capital-results/
+            capital-log.txt
