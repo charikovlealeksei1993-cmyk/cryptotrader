@@ -1,0 +1,70 @@
+name: Independent absorption validation
+on:
+  push:
+    branches: [feature/trap-signals-v14]
+    paths: ['.github/workflows/absorption-validation.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate frozen experiment 19 on unseen 90 days
+        run: |
+          python - <<'PY'
+          import csv,gzip,io,urllib.request,datetime,collections,time
+          start=datetime.date(2026,7,12)
+          t=[];o=[];c=[];v=[]
+          for k in range(90):
+              day=start+datetime.timedelta(days=k)
+              url=f"https://public.bybit.com/trading/BTCUSDT/BTCUSDT{day}.csv.gz"
+              for attempt in range(3):
+                  try:
+                      buckets={}
+                      with urllib.request.urlopen(url,timeout=180) as response:
+                          for row in csv.DictReader(io.TextIOWrapper(gzip.GzipFile(fileobj=response))):
+                              m=int(float(row["timestamp"])//60)
+                              price=float(row["price"]);q=float(row["size"])
+                              b=buckets.setdefault(m,[price,price,0.])
+                              b[1]=price;b[2]+=q
+                      break
+                  except Exception:
+                      if attempt==2:raise
+                      time.sleep(5)
+              expected=int(datetime.datetime.combine(day,datetime.time(),datetime.timezone.utc).timestamp()//60)
+              assert sorted(buckets)==list(range(expected,expected+1440)),day
+              for m,b in sorted(buckets.items()):
+                  t.append(m);o.append(b[0]);c.append(b[1]);v.append(b[2])
+              print(day,len(buckets),flush=True)
+          p=[0.]
+          for x in v:p.append(p[-1]+x)
+          H=1440
+          groups=collections.defaultdict(lambda:[0,0.,0])
+          last={}
+          for i in range(360,len(t)-H):
+              a=c[i-16]/c[i-31]-1
+              b=c[i-1]/c[i-16]-1
+              recent=(p[i]-p[i-30])/30
+              base=(p[i-30]-p[i-360])/330
+              if base<=0 or a+b+a*b<.003 or recent<1.5*base or a<=0:continue
+              label="absorption_proxy" if p[i]-p[i-15]>p[i-15]-p[i-30] and b<a*.5 else "other_impulse"
+              for cohort in (label,"all_impulses"):
+                  if i<last.get(cohort,0):continue
+                  last[cohort]=i+H
+                  ret=100*(1-o[i+H]/o[i])-.11
+                  g=groups[cohort];g[0]+=1;g[1]+=ret;g[2]+=ret>0
+          with open("validation.csv","w",newline="") as f:
+              w=csv.writer(f);w.writerow(["cohort","trades","mean_net_pct","positive_pct"])
+              for cohort,(n,s,win) in sorted(groups.items()):
+                  row=[cohort,n,round(s/n,4),round(100*win/n,2)]
+                  w.writerow(row);print(row)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: independent-absorption-validation
+          path: validation.csv
