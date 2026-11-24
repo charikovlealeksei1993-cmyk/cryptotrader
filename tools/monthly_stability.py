@@ -14,11 +14,9 @@ from pathlib import Path
 
 REPO = "charikovlealeksei1993-cmyk/cryptotrader"
 RUN_ID = 45460493348
-ARTIFACTS = {"tp7-sl2": 14951758568, "tp7-sl3": 14951518899}
+ARTIFACTS = {"tp7-sl2": 14951758568}
 SCENARIOS = [
     ("short-30m-tp7-sl2", "tp7-sl2", "tp7-sl2-tf30-short.csv"),
-    ("both-60m-tp7-sl2", "tp7-sl2", "tp7-sl2-tf60-long-short.csv"),
-    ("both-30m-tp7-sl3", "tp7-sl3", "tp7-sl3-tf30-long-short.csv"),
 ]
 INITIAL_USDT = 10000 / 90
 RUB_PER_USDT = 90
