@@ -26,7 +26,9 @@ jobs:
       - name: Compile actual detector
         run: |
           src=app/src/main/java/com/cryptotrader/bybit
-          kotlinc "$src/SignalDetector.kt" "$src/Models.kt" tools/SignalReplay.kt -include-runtime -d replay.jar
+          # AppState is unrelated to the detector and references Android UI models.
+          python -c 'import pathlib,re; s=pathlib.Path("app/src/main/java/com/cryptotrader/bybit/Models.kt").read_text(); pathlib.Path("ReplayModels.kt").write_text(re.sub(r"data class AppState\([\s\S]*?\n\)\n", "", s))'
+          kotlinc "$src/SignalDetector.kt" ReplayModels.kt tools/SignalReplay.kt -include-runtime -d replay.jar
       - name: Download historical trades
         run: python tools/download_signal_history.py
       - name: Replay signals
