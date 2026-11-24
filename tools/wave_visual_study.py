@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Visual exploratory test of fixed, early-estimated 1m BTC trajectories.
-No lookahead, wave classification, or trading signals. Illustrative windows only.
+No lookahead, wave classification, or trading signals. Illustrative windows only.\nTriggered from the cached BTC minute history in GitHub Actions.
 """
 import csv, json, math
 from pathlib import Path
