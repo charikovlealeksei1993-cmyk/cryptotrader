@@ -17,7 +17,7 @@ LEVERAGE = 1.0
 INITIAL = START_RUB / RUB_PER_USDT
 
 def get_csv(artifact_id):
-    token = os.environ["GITHUB_TOKEN"]
+    if os.environ.get("LOCAL_RESULTS"):\n        return list(csv.DictReader(open("signal-results.csv", newline="")))\n    token = os.environ["GITHUB_TOKEN"]
     req = urllib.request.Request(
         f"https://api.github.com/repos/{REPO}/actions/artifacts/{artifact_id}/zip",
         headers={"Authorization":f"Bearer {token}", "Accept":"application/vnd.github+json",
@@ -89,7 +89,7 @@ def main():
     output=Path("capital-results")
     output.mkdir(exist_ok=True)
     summaries=[]
-    for label,artifact_id in ARTIFACTS.items():
+    for label,artifact_id in ARTIFACTS.items():\n        if os.environ.get("ONLY_VARIANT") and label != os.environ["ONLY_VARIANT"]:\n            continue
         rows=get_csv(artifact_id)
         if not rows: raise RuntimeError(f"Empty artifact {label}")
         for tf in (1,5,15,30,60):
