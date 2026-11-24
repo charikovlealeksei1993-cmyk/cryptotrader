@@ -1,6 +1,6 @@
 import csv, gzip, urllib.request, datetime, collections, sys
 # Bybit public linear BTCUSDT trade archive; UTC dates, no credentials.
-days = [datetime.date.fromisoformat("2026-11-20") + datetime.timedelta(days=i) for i in range(3)]
+days = [datetime.date.fromisoformat("2026-10-10") + datetime.timedelta(days=i) for i in range(44)]
 with open("replay-input.csv","w") as out:
     w=csv.writer(out)
     for day in days:
