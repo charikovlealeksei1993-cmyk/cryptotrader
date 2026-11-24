@@ -1,0 +1,28 @@
+name: Experiment 39 - trap vs capital data audit
+on:
+  push:
+    branches: [feature/trap-signals-v14]
+    paths:
+      - '.github/workflows/experiment-39-audit.yml'
+      - 'tools/experiment39_data_audit.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        with:
+          path: annual-replay.csv
+          key: btc-annual-replay-compact-20251010-20261023-v1
+          fail-on-cache-miss: true
+      - name: Check real replay data fields
+        run: |
+          python3 tools/experiment39_data_audit.py annual-replay.csv
+          python3 -m py_compile tools/experiment39_data_audit.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: experiment-39-data-audit
+          path: experiment-39-audit.json
