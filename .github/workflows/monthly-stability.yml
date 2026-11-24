@@ -15,6 +15,13 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - name: Download experiment 38 TP7 SL2 trades
+        uses: actions/download-artifact@v4
+        with:
+          name: experiment-38-capital-tp7-sl2
+          run-id: 45460493348
+          github-token: ${{ github.token }}
+          path: source-capital-results
       - name: Recalculate monthly results from exact experiment 38 trade logs
         env:
           GITHUB_TOKEN: ${{ github.token }}
