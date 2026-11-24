@@ -1,0 +1,65 @@
+name: Yearly entry audit 32 and 33
+on:
+  push:
+    branches: [feature/trap-signals-v14]
+    paths: ['.github/workflows/yearly-entry-audit.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        window: [30,60]
+    steps:
+      - uses: actions/cache/restore@v4
+        with:
+          path: btc-year.csv
+          key: btc-bybit-minute-2025-10-10-2026-10-09-v1
+          fail-on-cache-miss: true
+      - name: Audit unchanged entries
+        env:
+          WINDOW: ${{ matrix.window }}
+        run: |
+          python - <<'PY'
+          import csv,os,statistics,collections
+          window=int(os.environ["WINDOW"])
+          with open("btc-year.csv") as f: rows=list(csv.reader(f))
+          assert len(rows)==525600 and all(int(r[0])==int(rows[0][0])+i*60000 for i,r in enumerate(rows))
+          o,h,l,c,v=([float(r[k]) for r in rows] for k in range(1,6))
+          p=[0.]
+          for x in v:p.append(p[-1]+x)
+          i=360; trades=[]
+          while i<len(o)-1440:
+              if c[i-1]/c[i-window-1]-1<.003 or (p[i]-p[i-window])/window<1.5*(p[i-window]-p[i-360])/(360-window):
+                  i+=1;continue
+              entry=o[i]
+              for j in range(i,i+1440):
+                  if h[j]>=entry*1.05:ret=-5;exit_type="SL";break
+                  if l[j]<=entry*.90:ret=10;exit_type="TP";break
+              else:
+                  j=i+1440;ret=100*(1-o[j]/entry);exit_type="time"
+              change=100*(c[i-1]/c[i-6]-1)
+              ratio=(p[i]-p[i-5])/max(p[i-5]-p[i-10],1e-12)
+              label="fall" if change<-.05 else "rise" if change>.05 else "flat"
+              trades.append([int(rows[i][0]),ret-.11,change,ratio,label,exit_type])
+              i=j+1
+          expected={30:(303,13.66),60:(297,8.74)}[window]
+          assert len(trades)==expected[0] and abs(sum(r[1] for r in trades)-expected[1])<.011
+          def report(label,rr):
+              gains=sum(r[1] for r in rr if r[1]>0);loss=-sum(r[1] for r in rr if r[1]<=0)
+              print("GROUP",label,len(rr),sum(r[1]>0 for r in rr),sum(r[1]<=0 for r in rr),round(gains,2),round(loss,2),round(gains-loss,2))
+          for label in ["all","rise","flat","fall","flat_volume_up"]:
+              rr=[r for r in trades if label=="all" or r[4]==label or (label=="flat_volume_up" and r[4]=="flat" and r[3]>1)]
+              report(label,rr)
+          for win in [True,False]:
+              rr=[r for r in trades if (r[1]>0)==win]
+              print("MEDIAN",win,statistics.median(r[2] for r in rr),statistics.median(r[3] for r in rr))
+          with open("entry-audit.csv","w") as f:
+              w=csv.writer(f);w.writerow(["timestamp","net_usd","last5_return_pct","volume_ratio_vs_previous5","price_group","exit"]);w.writerows(trades)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: entry-audit-${{ matrix.window }}
+          path: entry-audit.csv
