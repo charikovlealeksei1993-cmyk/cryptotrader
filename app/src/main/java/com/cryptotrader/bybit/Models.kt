@@ -122,8 +122,7 @@ data class ScanResult(
     val nextFundingTime: Long = 0L,
     val cvd1h: Double = 0.0,
     val burstsUp: Int = 0,
-    val burstsDown: Int = 0,
-    val macroAccumulation: AccumulationInfo? = null
+    val burstsDown: Int = 0
 ) {
     val score: Int get() = signals.size
 }

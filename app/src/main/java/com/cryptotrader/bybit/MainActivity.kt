@@ -1062,6 +1062,17 @@ class MainActivity : Activity() {
             "LONG ${UiUtils.formatMoney(liq.long15m)} / SHORT ${UiUtils.formatMoney(liq.short15m)} · $trend"
     }
 
+    private fun cardAccumulation(r: ScanResult): String {
+        val acc = r.accumulation ?: return ""
+        val side = if (acc.type == "long") "LONG" else "SHORT"
+        val level = when (acc.level) {
+            "strong" -> "сильное"
+            "medium" -> "среднее"
+            else -> "слабое"
+        }
+        return "Накопление $side · $level · OI ${"%+.2f".format(acc.oiChangePct)}%"
+    }
+
     private fun cardLevels(r: ScanResult): String {
         val open = PaperTrading.openTrades().firstOrNull { it.symbol == r.symbol }
         if (open != null) {
@@ -1097,6 +1108,7 @@ class MainActivity : Activity() {
         if (hasSignal && r.signalPattern.isNotEmpty()) lines.add(r.signalPattern)
         lines.add("Цена: " + "%.4f".format(r.price) + " · 15м: " + "%+.2f".format(r.change15m) + "%")
         if (hasSignal) lines.add("Свеча подтверждения закрыта")
+        if (cardAccumulation(r).isNotEmpty()) lines.add(cardAccumulation(r))
         if (cardLiquidations(r.symbol).isNotEmpty()) lines.add(cardLiquidations(r.symbol))
         if (cardCascadeStatus(r.symbol).isNotEmpty()) lines.add(cardCascadeStatus(r.symbol))
         if (hasSignal && cardLevels(r).isNotEmpty()) lines.add(cardLevels(r))
@@ -1784,23 +1796,13 @@ class MainActivity : Activity() {
                                 val candles = BybitApi.fetchKlines(sym, Prefs.signalTf(this), 90).reversed()
                                 val realTurn24 = turnoverMap[sym] ?: 0.0
                                 // Crowd ratios are no longer fetched for signal cards.
-                                val oiHist = BybitApi.fetchOiHistory(sym, 9)
+                                val accBars = (Prefs.accMinutes(this) / 5).coerceAtLeast(3)
+                                val oiHist = BybitApi.fetchOiHistory(sym, max(9, accBars))
+                                val accCandles = if (Prefs.signalTf(this) == "1" && candles.size >= accBars * 5) candles else
+                                    BybitApi.fetchKlines(sym, "1", max(90, accBars * 5 + 1)).reversed()
                                 val fundingInfo = BybitApi.fetchFundingInfo(sym)
                                 val funding = fundingInfo?.rate
 
-                                var m15Candles: List<Candle>? = null
-                                var oi15Hist: List<Double>? = null
-                                var delta15Buckets: List<Double> = emptyList()
-                                val macroHours = Prefs.accHours(this)
-                                if (macroHours > 0) {
-                                    try {
-                                        val barsNeeded = ((macroHours * 60) / 15).coerceAtLeast(3)
-                                        m15Candles = BybitApi.fetchKlines(sym, "15", barsNeeded + 10).reversed()
-                                        oi15Hist = BybitApi.fetchOiHistory(sym, barsNeeded, "15min")
-                                        val all5Buckets = tradeDeltaAnalyzer.getDeltaBuckets(sym, (macroHours * 60) / 5)
-                                        delta15Buckets = all5Buckets.chunked(3).map { it.sum() }
-                                    } catch (_: Exception) {}
-                                }
                                 val oiPair = if (oiHist != null && oiHist.size >= 2) {
                                     val oiLatest = oiHist.last()
                                     val oiPrev = oiHist[oiHist.size - 2]
@@ -1827,9 +1829,7 @@ class MainActivity : Activity() {
                                     oiTrend = oiTrend,
                                     oiHistory = oiHist,
                                     deltaBuckets = tradeDeltaAnalyzer.getDeltaBuckets(sym, (Prefs.accMinutes(this) / 5).coerceAtLeast(3)),
-                                    m15Candles = m15Candles,
-                                    oi15Hist = oi15Hist,
-                                    delta15Buckets = delta15Buckets,
+                                    accumulationCandles = accCandles,
                                     funding = fundingInfo?.rate, nextFundingTime = fundingInfo?.nextTime ?: 0L
                                 )
                                 if (res != null) results.add(res)
@@ -2143,9 +2143,8 @@ class MainActivity : Activity() {
         oiTrend: String = "stable",
         oiHistory: List<Double>? = null,
         deltaBuckets: List<Double> = emptyList(),
-        m15Candles: List<Candle>? = null,
-        oi15Hist: List<Double>? = null,
-        delta15Buckets: List<Double> = emptyList(), funding: Double? = null, nextFundingTime: Long = 0L
+        accumulationCandles: List<Candle> = candles,
+        funding: Double? = null, nextFundingTime: Long = 0L
     ): ScanResult? {
         if (candles.size < 60) return null
         val signals = ArrayList<Signal>()
@@ -2274,7 +2273,10 @@ class MainActivity : Activity() {
         val referenceTarget = if (validReference)
             referenceEntry + (if (sigResult.type == "long") 2.0 else -2.0) * referenceRisk
             else 0.0
-        if (signals.isEmpty() && !forceInclude && sigResult.type.isEmpty()) return null
+        val accumulation = if (oiHistory != null) {
+            SignalDetector.detectAccumulation(accumulationCandles, oiHistory, deltaBuckets, Prefs.accMinutes(this))
+        } else null
+        if (signals.isEmpty() && !forceInclude && sigResult.type.isEmpty() && accumulation == null) return null
 
         if (sigResult.type.isNotEmpty()) {
             synchronized(MarketState.signalHistoryLock) {
@@ -2293,13 +2295,6 @@ class MainActivity : Activity() {
     val events = synchronized(MarketState.liqLock) { MarketState.liqBuffer[symbol]?.toList() ?: emptyList() }
     SignalDetector.computePeakForecast(curPrice, sigResult.type == "short", events)
 } else PeakForecast.empty()
-val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.size >= 9) {
-    SignalDetector.detectAccumulation(candles, oiHistory, deltaBuckets, Prefs.accMinutes(this))
-} else null
-        val macroAcc = if (m15Candles != null && m15Candles.isNotEmpty() && oi15Hist != null && oi15Hist.size >= 3 && delta15Buckets.size >= 3) {
-            SignalDetector.detectMacroAccumulation(m15Candles, oi15Hist, delta15Buckets, Prefs.accHours(this))
-        } else null
-
         val cvd1h = tradeDeltaAnalyzer.getCvd(symbol, 60)
         val burstThresh = Prefs.deltaBurstThreshold(this)
         val burstsPair = tradeDeltaAnalyzer.getBursts(symbol, 60, burstThresh)
@@ -2332,7 +2327,6 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
             flowStatus = flowStatus,
             priceAt15mAgo = price15,
             accumulation = accumulation,
-            macroAccumulation = macroAcc,
             accumulationLow = accumulation?.priceLow ?: 0.0,
             accumulationHigh = accumulation?.priceHigh ?: 0.0,
             fundingRate = funding ?: 0.0, nextFundingTime = nextFundingTime,
@@ -2568,6 +2562,17 @@ val accumulation = if (oiHistory != null && oiHistory.size >= 9 && deltaBuckets.
             confirmation.setTextColor(Prefs.textDim(this))
             confirmation.textSize = 14f
             row.addView(confirmation)
+        }
+        val accumulationLine = cardAccumulation(r)
+        if (accumulationLine.isNotEmpty()) {
+            val accView = TextView(this)
+            accView.text = accumulationLine
+            accView.textSize = 15f
+            accView.setTypeface(null, Typeface.BOLD)
+            accView.setTextColor(Color.rgb(255, 220, 100))
+            accView.setBackgroundColor(Color.rgb(83, 65, 20))
+            accView.setPadding(8, 8, 8, 8)
+            row.addView(accView)
         }
         val liquidationView = TextView(this)
         liquidationView.textSize = 14f

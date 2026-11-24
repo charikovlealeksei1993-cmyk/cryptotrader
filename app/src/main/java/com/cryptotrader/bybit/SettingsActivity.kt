@@ -271,37 +271,6 @@ class SettingsActivity : Activity() {
         accHint.setPadding(0, 4, 0, 20)
         root.addView(accHint)
 
-        // ===== Окно макро-накопления (часы) =====
-        val accHoursLabel = TextView(this)
-        accHoursLabel.textSize = 16f
-        accHoursLabel.setTextColor(Prefs.text(this))
-        accHoursLabel.setPadding(0, 16, 0, 8)
-        accHoursLabel.text = "Макро-накопление: ${Prefs.accHours(this)} ч"
-        root.addView(accHoursLabel)
-
-        val accHoursSeek = SeekBar(this)
-        accHoursSeek.max = 119 // (120 - 1) = 119 шагов
-        accHoursSeek.progress = Prefs.accHours(this) - 1
-        accHoursSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
-                val v = progress + 1
-                accHoursLabel.text = "Макро-накопление: $v ч"
-            }
-            override fun onStartTrackingTouch(sb: SeekBar?) {}
-            override fun onStopTrackingTouch(sb: SeekBar?) {
-                val v = (sb?.progress ?: 0) + 1
-                Prefs.setAccHours(this@SettingsActivity, v)
-            }
-        })
-        root.addView(accHoursSeek)
-
-        val accHoursHint = TextView(this)
-        accHoursHint.text = "Анализ на M15-барах. 4 часа — стандарт, 24 часа — поиск глобального накопления."
-        accHoursHint.textSize = 13f
-        accHoursHint.setTextColor(Prefs.textDim(this))
-        accHoursHint.setPadding(0, 4, 0, 20)
-        root.addView(accHoursHint)
-
         // ===== Paper Trading: SL / TP / Timeout =====
         val paperTitle = TextView(this)
         paperTitle.text = "📈 Paper Trading"
