@@ -1,0 +1,30 @@
+name: BTC minute wave visual study
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/trap-signals-v14]
+    paths:
+      - 'tools/wave_visual_study.py'
+      - '.github/workflows/wave-visual-study.yml'
+permissions:
+  contents: read
+jobs:
+  visual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        with:
+          path: annual-replay.csv
+          key: btc-annual-replay-compact-20251010-20261023-v1
+          fail-on-cache-miss: true
+      - name: Install plotting dependency
+        run: python3 -m pip install matplotlib
+      - name: Generate fixed-slope example charts
+        run: python3 tools/wave_visual_study.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: btc-minute-wave-images
+          path: wave-visual-results/
