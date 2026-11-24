@@ -1070,7 +1070,34 @@ class MainActivity : Activity() {
             "medium" -> "среднее"
             else -> "слабое"
         }
-        return "Накопление $side · $level · OI ${"%+.2f".format(acc.oiChangePct)}%"
+        val minutes = Prefs.accMinutes(this)
+        val threshold = Prefs.largeTradeThreshold(this)
+        val now = System.currentTimeMillis()
+        val cutoff = now - minutes * 60_000L
+        val trades = synchronized(MarketState.largeTradesLock) {
+            MarketState.largeTrades[r.symbol]?.filter {
+                it.time in cutoff..now && it.usd >= threshold
+            }?.sortedBy { it.time } ?: emptyList()
+        }
+        val buys = trades.filter { it.isBuy }
+        val sells = trades.filter { !it.isBuy }
+        val buyUsd = buys.sumOf { it.usd }
+        val sellUsd = sells.sumOf { it.usd }
+        val total = buyUsd + sellUsd
+        val firstPrice = trades.firstOrNull()?.price ?: 0.0
+        val move = if (firstPrice > 0.0) (r.price / firstPrice - 1.0) * 100.0 else 0.0
+        val span = (trades.lastOrNull()?.time ?: 0L) - (trades.firstOrNull()?.time ?: 0L)
+        val enough = total > 0.0 && trades.size >= 3 && span >= 60_000L && firstPrice > 0.0
+        val absorption = when {
+            enough && sells.size >= 3 && sellUsd / total >= 0.70 && move >= -0.10 ->
+                "🟣 Возможное поглощение продаж · уклон LONG"
+            enough && buys.size >= 3 && buyUsd / total >= 0.70 && move <= 0.10 ->
+                "🟣 Возможное поглощение покупок · уклон SHORT"
+            else -> "Поглощение не подтверждено"
+        }
+        val header = "Накопление · $level · OI ${"%+.2f".format(acc.oiChangePct)}% · дельта $side"
+        if (trades.isEmpty()) return "$header\nКрупные сделки: пока нет данных выше порога"
+        return "$header\nКрупные сделки (до ${minutes}м): BUY ${UiUtils.formatMoney(buyUsd)} / SELL ${UiUtils.formatMoney(sellUsd)} · ${trades.size} шт.\nЦена от первой сделки: ${"%+.2f".format(move)}%\n$absorption"
     }
 
     private fun cardLevels(r: ScanResult): String {
@@ -1299,14 +1326,14 @@ class MainActivity : Activity() {
         tradeDeltaSocket = TradeDeltaSocket(symbols) { symbol, time, price, size, isBuy ->
             val usd = price * size
             tradeDeltaAnalyzer.addTrade(symbol, time, usd, isBuy)
-            val ltThreshold = Prefs.largeTradeThreshold(this)
+            val ltThreshold = Prefs.LARGE_TRADE_MIN
             if (usd >= ltThreshold) {
                 synchronized(MarketState.largeTradesLock) {
                     val buf = MarketState.largeTrades.getOrPut(symbol) { ArrayList() }
                     buf.add(LargeTrade(time, usd, isBuy, price))
-                    val cutoff = System.currentTimeMillis() - 60 * 60_000L
+                    val cutoff = System.currentTimeMillis() - 120 * 60_000L
                     buf.removeAll { it.time < cutoff }
-                    while (buf.size > 20) buf.removeAt(0)
+                    while (buf.size > 5000) buf.removeAt(0)
                 }
             }
             synchronized(MarketState.liveLock) {
