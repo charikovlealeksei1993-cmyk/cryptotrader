@@ -13,6 +13,9 @@ OUTPUT="short-factor-results.csv"
 SPLIT=1792886400000  # 2026-10-25 UTC
 FEATURES=("price_rise_60m","volume_spike_60m","failed_high_15m","rise_and_spike","rise_and_failure","spike_and_failure","all_three")
 
+GRID=[[15,0.003,1.25],[15,0.003,1.5],[15,0.003,2],[15,0.003,3],[15,0.005,1.25],[15,0.005,1.5],[15,0.005,2],[15,0.005,3],[15,0.01,1.25],[15,0.01,1.5],[15,0.01,2],[15,0.01,3],[15,0.015,1.25],[15,0.015,1.5],[15,0.015,2],[15,0.015,3],[30,0.003,1.25],[30,0.003,1.5],[30,0.003,2],[30,0.003,3],[30,0.005,1.25],[30,0.005,1.5],[30,0.005,2],[30,0.005,3],[30,0.01,1.25],[30,0.01,1.5],[30,0.01,2],[30,0.01,3],[30,0.015,1.25],[30,0.015,1.5],[30,0.015,2],[30,0.015,3],[60,0.003,1.25],[60,0.003,1.5],[60,0.003,2],[60,0.003,3],[60,0.005,1.25],[60,0.005,1.5],[60,0.005,2],[60,0.005,3],[60,0.01,1.25],[60,0.01,1.5],[60,0.01,2],[60,0.01,3],[60,0.015,1.25],[60,0.015,1.5],[60,0.015,2],[60,0.015,3]]
+FEATURES=FEATURES+tuple(f"grid_{w}m_{p}_{v}x" for w,p,v in GRID)
+
 def main():
     times, highs, closes, volumes = [], [], [], []
     with open(HISTORY) as f:
@@ -43,6 +46,7 @@ def main():
             recent_high=max(highs[i-15:i])
             failure=recent_high<=earlier_high
             flags=(rise,spike,failure,rise and spike,rise and failure,spike and failure,rise and spike and failure)
+            flags=flags+tuple(closes[i-1]/closes[i-w-1]-1 >= p and (prefix[i]-prefix[i-w])/w >= v*(prefix[i-w]-prefix[i-360])/(360-w) for w,p,v in GRID)
             period="train" if times[i]<SPLIT else "test"
             for feature,flag in zip(FEATURES,flags):
                 s=groups[(period,row["tf"],feature,"yes" if flag else "no")]
