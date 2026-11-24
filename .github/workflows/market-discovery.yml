@@ -1,0 +1,84 @@
+name: Market discovery experiment 29
+on:
+  push:
+    branches: [feature/trap-signals-v14]
+    paths: ['.github/workflows/market-discovery.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  study:
+    strategy:
+      fail-fast: false
+      matrix:
+        experiment: [29]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        with:
+          path: replay-input.csv
+          key: btcusdt-history-v1-${{ hashFiles('tools/download_signal_history.py') }}
+          fail-on-cache-miss: true
+      - name: Discover historical analogs
+        run: |
+          python -m pip install numpy scikit-learn
+          python - <<'PY'
+          import csv,numpy as np
+          from sklearn.preprocessing import StandardScaler
+          from sklearn.neighbors import NearestNeighbors
+          csv.field_size_limit(10000000)
+          rows=[];flows=[];caps=[]
+          with open("replay-input.csv") as f:
+              for r in csv.reader(f):
+                  rows.append([float(x) for x in r[:6]])
+                  d=[float(x.split(":")[1]) for x in r[7].split(";") if x]
+                  flows.append([sum(x for x in d if x>0),-sum(x for x in d if x<0)])
+                  caps.append(int(r[6])>=5000)
+          a=np.array(rows);p=np.vstack([np.zeros(2),np.cumsum(flows,axis=0)])
+          cap=np.r_[0,np.cumsum(caps)]
+          assert len(a)==44*1440 and np.all(a[:,0]==1791590400000+np.arange(len(a))*60000)
+          X=[];P=[];I=[]
+          for i in range(60,len(a)-240,15):
+              if a[i,0]>=1794182400000:break
+              if cap[i]!=cap[i-60]:continue
+              price=[];flow=[]
+              for w in [5,15,30,60]:
+                  ret=np.log(a[i-1,4]/a[i-w,1])
+                  vol=np.log1p(a[i-w:i,5].sum())
+                  b,s=p[i]-p[i-w]
+                  price.extend([ret,vol,np.log(a[i-w:i,2].max()/a[i-w:i,3].min())])
+                  flow.extend([np.log1p(b),np.log1p(s),(b-s)/max(b+s,1),ret/max((b+s)/1e6,1)])
+              X.append(price+flow);P.append(price);I.append(i)
+          I=np.array(I);X=np.array(X);P=np.array(P)
+          split=np.searchsorted(a[:,0],1792886400000)
+          with open("discovery-results.csv","w") as f:
+              w=csv.writer(f);w.writerow(["horizon","model","cohort","n","mean_move_pct","direction_accuracy","mean_signed_move_pct"])
+              for H in [15,60,240]:
+                  train=I+H<split-60
+                  test=(I>=split)&(I%H==0) if H>=60 else I>=split
+                  y=100*(a[I+H,1]/a[I,1]-1)
+                  assert train.sum()>=30 and test.sum()>0
+                  for name,data in [("price_volume",P),("price_volume_flow",X)]:
+                      scale=StandardScaler().fit(data[train])
+                      z=scale.transform(data[train]);q=scale.transform(data[test])
+                      nn=NearestNeighbors(n_neighbors=30).fit(z)
+                      dist,idx=nn.kneighbors(q)
+                      pred=y[train][idx].mean(axis=1)
+                      actual=y[test]
+                      threshold=np.quantile(np.abs(y[train]),.75)
+                      for label,mask in [("all",np.ones(len(pred),dtype=bool)),("up",pred>=threshold),("down",pred<=-threshold)]:
+                          if not mask.any():continue
+                          v=actual[mask];d=np.sign(pred[mask])
+                          row=[H,name,label,len(v),round(v.mean(),5),round(np.mean(d*v>0),4),round(np.mean(d*v),5)]
+                          w.writerow(row);print(row,flush=True)
+                  v=y[test]
+                  for d in [1,-1]:
+                      row=[H,"constant_direction",str(d),len(v),round(v.mean(),5),round(np.mean(d*v>0),4),round(np.mean(d*v),5)]
+                      w.writerow(row);print(row,flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: market-discovery-results
+          path: discovery-results.csv
