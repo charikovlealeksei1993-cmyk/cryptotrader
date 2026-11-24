@@ -90,3 +90,9 @@ Commit 1e5d49c93ba2cafc07e14b2f3c9efe7ac219e2d4, yearly-entry-audit.yml, matrix 
 
 ### №34 — годовой контроль текущего детектора приложения
 Commit f18eb837aff4bd71f8d498f7935f5411f5b074de, annual-app-replay.yml. BTCUSDT entries 2025-10-10 through 2026-10-09, 14 additional days exits only. Actual SignalDetector.kt, original SignalReplay.kt adapted input/date only, TF 1/5/15/30/60, weak/medium/strong LONG and SHORT, next open, SL2 TP5, overlapping independent trades, no fees, SL priority on ambiguous minute. Compact flow cache from daily raw archives retains equivalent capped previous/current trade sums; existing OHLCV cache insufficient. Higher TF no flow, no historical liquidation/OI as original replay. Not full live app simulation. Report counts, wins/losses, gross/net per direction and TF, unresolved statuses. No strategy changes or capital targets.
+
+### Итоги №32–33
+Run 45428768823 success, jobs 138567941408 (30m) and 138567940701 (60m). Reproduced baseline. Rows group,n,wins,losses,gains,loss_usd,net:
+32 rise,235,121,114,228.38,204.27,24.11; flat,53,22,31,38.22,56.22,-18.00; fall,15,11,4,16.58,9.03,7.55; flat_volume_up,17,7,10,7.77,20,-12.22.
+33 rise,230,118,112,216.35,203.91,12.44; flat,39,20,19,23.67,30.64,-6.97; fall,28,16,12,30.97,27.70,3.27; flat_volume_up,13,7,6,12.35,7.41,4.94.
+Descriptive groups of frozen entries, not filtered replays. Flat negative both, falling subgroup small. No independent validation. №34 run 45429875708 in progress, compiling succeeded, preparing annual compact trade inputs. No deposit or desired return target per user.
