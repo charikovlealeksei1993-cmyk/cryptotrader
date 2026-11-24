@@ -1,4 +1,4 @@
-name: Experiment 38 - 10000 RUB capital constrained BTC replay
+name: Experiment 38 - realistic capital replay
 on:
   push:
     branches: [feature/trap-signals-v14]
@@ -6,23 +6,69 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
-  actions: read
 jobs:
   capital-replay:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: tp7-sl2
+            tp: '7'
+            sl: '2'
+          - label: tp7-sl3
+            tp: '7'
+            sl: '3'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
-      - name: Run capital constrained simulation
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Restore annual replay inputs
+        uses: actions/cache/restore@v4
+        with:
+          path: annual-replay.csv
+          key: btc-annual-replay-compact-20251010-20261023-v1
+          fail-on-cache-miss: true
+      - name: Prepare exact detector and replay variant
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          TP: ${{ matrix.tp }}
+          SL: ${{ matrix.sl }}
+        run: |
+          python - <<'PY'
+          import pathlib,re,os
+          src=pathlib.Path("app/src/main/java/com/cryptotrader/bybit/Models.kt").read_text()
+          pathlib.Path("ReplayModels.kt").write_text(re.sub(r"data class AppState\([\s\S]*?\n\)\n", "", src))
+          p=pathlib.Path("tools/SignalReplay.kt")
+          s=p.read_text().replace("2026-11-09T00:00:00Z","2026-10-10T00:00:00Z").replace('File("replay-input.csv")','File("annual-replay.csv")').replace('line.split(",", limit = 8)','line.split(",")')
+          a=s.index("        val current ="); b=s.index("        prior = current",a)+len("        prior = current")
+          s=s[:a]+"        flows.add(Triple(a[6].toDoubleOrNull(),a[7].toDoubleOrNull(),a[8].toDoubleOrNull()))"+s[b:]
+          s=s.replace("entries Oct 10-Nov 8 UTC; exits through Nov 22","entries 2025-10-10 through 2026-10-09 UTC; exits through 2026-10-23")
+          assert "if(long) 1.05 else 0.95" in s and "if(long) 0.98 else 1.02" in s
+          tp=int(os.environ["TP"]); sl=int(os.environ["SL"])
+          s=s.replace("if(long) 1.05 else 0.95",f"if(long) {1+tp/100:.4f} else {1-tp/100:.4f}")
+          s=s.replace("if(long) 0.98 else 1.02",f"if(long) {1-sl/100:.4f} else {1+sl/100:.4f}")
+          s=s.replace("TP 5%, SL 2%",f"TP {tp}%, SL {sl}%")
+          p.write_text(s)
+          PY
+          src=app/src/main/java/com/cryptotrader/bybit
+          kotlinc "$src/SignalDetector.kt" ReplayModels.kt tools/SignalReplay.kt -include-runtime -d replay.jar
+      - name: Replay five timeframes
+        run: java -Xmx5g -jar replay.jar 1 5 15 30 60
+      - name: Simulate one-position 10000 RUB account
+        env:
+          LOCAL_RESULTS: '1'
+          ONLY_VARIANT: ${{ matrix.label }}
         run: |
           set -euo pipefail
           python3 tools/capital_replay.py | tee capital-log.txt
+          test -s capital-results/summary.csv
       - name: Upload reports and trades
         uses: actions/upload-artifact@v4
         with:
-          name: experiment-38-capital-10000rub
+          name: experiment-38-capital-${{ matrix.label }}
           path: |
             capital-results/
             capital-log.txt
