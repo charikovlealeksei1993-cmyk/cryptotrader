@@ -1,0 +1,41 @@
+name: Historical signal replay
+on:
+  push:
+    branches: [feature/trap-signals-v14]
+    paths:
+      - 'tools/SignalReplay.kt'
+      - 'tools/download_signal_history.py'
+      - '.github/workflows/signal-history.yml'
+      - 'app/src/main/java/com/cryptotrader/bybit/SignalDetector.kt'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile actual detector
+        run: |
+          src=app/src/main/java/com/cryptotrader/bybit
+          kotlinc "$src/SignalDetector.kt" "$src/Models.kt" tools/SignalReplay.kt -include-runtime -d replay.jar
+      - name: Download historical trades
+        run: python tools/download_signal_history.py
+      - name: Replay signals
+        run: |
+          java -jar replay.jar
+          cat signal-summary.txt >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: historical-signal-results
+          path: |
+            signal-results.csv
+            signal-summary.txt
