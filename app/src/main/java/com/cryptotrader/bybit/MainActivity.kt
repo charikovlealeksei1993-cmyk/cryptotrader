@@ -1081,7 +1081,7 @@ class MainActivity : Activity() {
         val moved = kotlin.math.abs(r.price - entry) / entry * 100.0 >= 0.5
         val prefix = if (moved) "⚠️ Цена ушла от исторического входа" else "План по настройкам робота (не ордер)"
         return "$prefix\nВход-ориентир: ${"%.4f".format(entry)} · SL: ${"%.4f".format(stop)} ($slPct%)\n" +
-            "TP: ${"%.4f".format(target)} ($tpPct%) · R:R 1:${"%.2f".format(tpPct / slPct)}"
+            "TP: ${"%.4f".format(target)} ($tpPct%)"
     }
 
     private fun buildCardText(r: ScanResult): String {
