@@ -1,0 +1,51 @@
+name: SHORT absorption proxy versus baseline
+on:
+  push:
+    branches: [feature/trap-signals-v14]
+    paths:
+      - 'tools/short_absorption_experiment.py'
+      - '.github/workflows/short-absorption-experiment.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/cache/restore@v4
+        with:
+          path: annual-replay.csv
+          key: btc-annual-replay-compact-20251010-20261023-v1
+          fail-on-cache-miss: true
+      - name: Prepare unchanged 30m detector
+        run: |
+          python3 - <<'PY'
+          import pathlib,re
+          src=pathlib.Path("app/src/main/java/com/cryptotrader/bybit/Models.kt").read_text()
+          pathlib.Path("ReplayModels.kt").write_text(re.sub(r"data class AppState\([\s\S]*?\n\)\n", "", src))
+          p=pathlib.Path("tools/SignalReplay.kt")
+          s=p.read_text().replace("2026-11-09T00:00:00Z","2026-10-10T00:00:00Z").replace('File("replay-input.csv")','File("annual-replay.csv")').replace('line.split(",", limit = 8)','line.split(",")')
+          a=s.index("        val current ="); b=s.index("        prior = current",a)+len("        prior = current")
+          s=s[:a]+"        flows.add(Triple(a[6].toDoubleOrNull(),a[7].toDoubleOrNull(),a[8].toDoubleOrNull()))"+s[b:]
+          s=s.replace("if(long) 1.05 else 0.95","if(long) 1.07 else 0.93").replace("if(long) 0.98 else 1.02","if(long) 0.98 else 1.02")
+          p.write_text(s)
+          PY
+          src=app/src/main/java/com/cryptotrader/bybit
+          kotlinc "$src/SignalDetector.kt" ReplayModels.kt tools/SignalReplay.kt -include-runtime -d replay.jar
+      - name: Replay 30m signals and compare
+        run: |
+          java -Xmx5g -jar replay.jar 30
+          python3 tools/short_absorption_experiment.py | tee absorption-log.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: short-absorption-proxy-results
+          path: |
+            absorption-results/
+            absorption-log.txt
