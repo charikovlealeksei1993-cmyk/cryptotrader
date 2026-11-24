@@ -84,7 +84,16 @@ def analyse(label, trades):
     }
 
 def main():
-    datasets = {variant: fetch(artifact) for variant, artifact in ARTIFACTS.items()}
+    datasets = {}
+    for variant, artifact in ARTIFACTS.items():
+        local = Path("source-capital-results")
+        if local.is_dir():
+            datasets[variant] = {
+                p.name: list(csv.DictReader(p.open(newline="")))
+                for p in local.rglob("*.csv")
+            }
+        else:
+            datasets[variant] = fetch(artifact)
     out = Path("monthly-results")
     out.mkdir(exist_ok=True)
     all_months = []
