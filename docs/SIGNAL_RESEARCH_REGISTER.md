@@ -72,3 +72,15 @@ Run 45425289426 job 138555483422 success. Full 15/60/240m: windows 1105/275/67, 
 
 ### №31 — аудит двух сценариев №30
 Commit fe4689f033aa1f40cbc493d51968cbd4d54dd747, workflow short-scenario-audit.yml. Воспроизводит часовое дерево №30 без изменения параметров, проверяет 275 окон, 115 сигналов, 8 попаданий и корневой признак. A: высокая покупательская активность 30–60м назад; B: остальная положительная ветвь. Отдельные результаты, PnL, первое касание -0.5% после входа, максимальный рост/падение, медианы всех 28 предшествующих признаков для попаданий/промахов. Это диагностический анализ той же истории, не независимая проверка; первое касание не равно началу падения. Автозапуск после push.
+
+### Итог №31
+Run 45426416176 job 138559527571 success, reproduced 115 signals/8 hits. A: 25 trades, 3 target hits, 9 wins/16 losses, gains 3.85285 losses 5.49570 net -1.64284; B: 90 trades, 5 hits, 32 wins/58 losses, gains 8.89905 losses 12.13690 net -3.23785. A hits median first touch 39m, max rise .1334%, max drop 1.1509%; B hits 35m, .0108%, 1.3997%. Four additional nonhits touched -0.5% intrahour. Hit groups had negative median price change in final 5m vs near zero for misses; A only 3 and B 5 examples, descriptive not validated. No tuning on this test.
+### Итог №24 — годовая проверка
+Run 45418739012 job 138532067912 success, 525600 minutes, cache saved btc-bybit-minute-2025-10-10-2026-10-09-v1. Rows window,rise,volume,trades,wins,losses,gains,loss_usd,net,tp,sl,timeout:
+60,.005,1.5,261,135,126,237.58,252.03,-14.45,2,18,241
+15,.003,2,293,143,150,253.69,258.11,-4.42,2,16,275
+30,.003,1.5,303,154,149,283.18,269.52,13.66,2,16,285
+60,.003,1.5,297,154,143,270.99,262.26,8.74,2,15,280
+60,.003,3,196,91,105,177.20,187.47,-10.27,1,12,183
+60,.005,3,170,77,93,150.75,165.69,-14.94,1,11,158
+Standalone OHLCV rules, not original detector filters. $100, fee .11%, SL5 TP10, 24h timeout. Most exits time-based. Two weak positive variants, no matched random baseline, no funding/slippage. Annual cache lacks signed flow. No robust advantage demonstrated.
