@@ -1,0 +1,97 @@
+name: Annual application signal replay 34
+on:
+  push:
+    branches: [feature/trap-signals-v14]
+    paths: ['.github/workflows/annual-app-replay.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile actual detector
+        run: |
+          src=app/src/main/java/com/cryptotrader/bybit
+          # AppState is unrelated to the detector and references Android UI models.
+          python -c 'import pathlib,re; s=pathlib.Path("app/src/main/java/com/cryptotrader/bybit/Models.kt").read_text(); pathlib.Path("ReplayModels.kt").write_text(re.sub(r"data class AppState\([\s\S]*?\n\)\n", "", s))'
+          kotlinc "$src/SignalDetector.kt" ReplayModels.kt tools/SignalReplay.kt -include-runtime -d replay.jar
+      - name: Restore annual replay inputs
+        id: annual
+        uses: actions/cache@v4
+        with:
+          path: annual-replay.csv
+          key: btc-annual-replay-compact-20251010-20261023-v1
+      - name: Prepare compact exact replay flows
+        if: steps.annual.outputs.cache-hit != 'true'
+        run: |
+          python - <<'PY'
+          import csv,gzip,urllib.request,datetime,collections,io,time
+          start=datetime.date(2025,10,10)
+          prior=[]
+          with open("annual-replay.csv","w") as f:
+              w=csv.writer(f)
+              for k in range(379):
+                  day=start+datetime.timedelta(days=k)
+                  for attempt in range(4):
+                      try:
+                          buckets={}
+                          with urllib.request.urlopen(f"https://public.bybit.com/trading/BTCUSDT/BTCUSDT{day}.csv.gz",timeout=180) as response:
+                              for row in csv.DictReader(io.TextIOWrapper(gzip.GzipFile(fileobj=response))):
+                                  t=int(float(row["timestamp"])//60)*60000
+                                  p=float(row["price"]);q=float(row["size"]);u=p*q
+                                  if t not in buckets:buckets[t]=[p,p,p,p,0.,collections.deque(maxlen=5000)]
+                                  b=buckets[t];b[1]=max(b[1],p);b[2]=min(b[2],p);b[3]=p;b[4]+=q;b[5].append((u,u if row["side"]=="Buy" else -u))
+                          ts=int(datetime.datetime.combine(day,datetime.time(),datetime.timezone.utc).timestamp()*1000)
+                          assert sorted(buckets)==list(range(ts,ts+86400000,60000))
+                          break
+                      except Exception:
+                          if attempt==3:raise
+                          time.sleep(2**attempt)
+                  for t,b in sorted(buckets.items()):
+                      cur=list(b[5]);prev=prior[-max(0,5000-len(cur)):] if len(cur)<5000 else []
+                      delta=sum(x[1] for x in cur) if prev else None
+                      prevusd=sum(x[0] for x in prev)
+                      w.writerow([t,*b[:5],delta,delta-sum(x[1] for x in prev) if delta is not None else None,sum(x[0] for x in cur)/prevusd if prevusd>0 else None])
+                      prior=cur
+                  print(day,flush=True)
+          PY
+      - name: Adapt replay input only
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path("tools/SignalReplay.kt")
+          s=p.read_text().replace("2026-11-09T00:00:00Z","2026-10-10T00:00:00Z").replace('File("replay-input.csv")','File("annual-replay.csv")').replace('line.split(",", limit = 8)','line.split(",")')
+          a=s.index("        val current =");b=s.index("        prior = current",a)+len("        prior = current")
+          s=s[:a]+"        flows.add(Triple(a[6].toDoubleOrNull(),a[7].toDoubleOrNull(),a[8].toDoubleOrNull()))"+s[b:]
+          s=s.replace("entries Oct 10-Nov 8 UTC; exits through Nov 22","entries 2025-10-10 through 2026-10-09 UTC; exits through 2026-10-23")
+          p.write_text(s)
+          PY
+          src=app/src/main/java/com/cryptotrader/bybit
+          kotlinc "$src/SignalDetector.kt" ReplayModels.kt tools/SignalReplay.kt -include-runtime -d replay.jar
+      - name: Replay all five timeframes
+        run: |
+          java -Xmx5g -jar replay.jar 1 5 15 30 60
+          python - <<'PY'
+          import csv,collections
+          g=collections.defaultdict(list)
+          for r in csv.DictReader(open("signal-results.csv")):g[r["tf"],r["side"]].append((float(r["returnPct"]),r["status"]))
+          for k,v in sorted(g.items(),key=lambda x:(int(x[0][0]),x[0][1])):
+              a=[x[0] for x in v];gain=sum(x for x in a if x>0);loss=-sum(x for x in a if x<=0)
+              print("ANNUAL",k,len(a),sum(x>0 for x in a),sum(x<=0 for x in a),round(gain,2),round(loss,2),round(gain-loss,2),dict(collections.Counter(x[1] for x in v)))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: annual-app-signal-results
+          path: |
+            signal-results.csv
+            signal-summary.txt
