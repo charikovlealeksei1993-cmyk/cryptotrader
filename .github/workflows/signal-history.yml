@@ -7,6 +7,7 @@ on:
       - 'tools/parameter_sweep.py'
       - 'tools/regime_analysis.py'
       - 'tools/short_random_baseline.py'
+      - 'tools/short_factor_analysis.py'
       - 'tools/download_signal_history.py'
       - '.github/workflows/signal-history.yml'
       - 'app/src/main/java/com/cryptotrader/bybit/SignalDetector.kt'
@@ -68,6 +69,10 @@ jobs:
         run: |
           python tools/short_random_baseline.py
           echo 'SHORT random baseline saved in short-random-baseline.csv' >> "$GITHUB_STEP_SUMMARY"
+      - name: Study SHORT entry conditions with chronological holdout
+        run: |
+          python tools/short_factor_analysis.py
+          echo 'SHORT feature study saved in short-factor-results.csv' >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
           name: historical-signal-results
@@ -77,3 +82,4 @@ jobs:
             parameter-sweep.csv
             regime-results.csv
             short-random-baseline.csv
+            short-factor-results.csv
