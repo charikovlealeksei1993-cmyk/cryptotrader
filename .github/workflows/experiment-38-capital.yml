@@ -16,7 +16,9 @@ jobs:
       - name: Run capital constrained simulation
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: python3 tools/capital_replay.py | tee capital-log.txt
+        run: |
+          set -euo pipefail
+          python3 tools/capital_replay.py | tee capital-log.txt
       - name: Upload reports and trades
         uses: actions/upload-artifact@v4
         with:
