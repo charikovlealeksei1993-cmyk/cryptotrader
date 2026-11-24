@@ -1,0 +1,84 @@
+name: Experiment 36 annual TP SL comparison
+on:
+  push:
+    branches: [feature/trap-signals-v14]
+    paths: ['.github/workflows/experiment-36-tp-sl.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  replay:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: tp5-sl5
+            tp: '5'
+            sl: '5'
+          - label: tp10-sl2
+            tp: '10'
+            sl: '2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Restore annual replay inputs
+        uses: actions/cache/restore@v4
+        with:
+          path: annual-replay.csv
+          key: btc-annual-replay-compact-20251010-20261023-v1
+          fail-on-cache-miss: true
+      - name: Prepare exact detector and replay variant
+        env:
+          TP: ${{ matrix.tp }}
+          SL: ${{ matrix.sl }}
+        run: |
+          python - <<'PY'
+          import pathlib,re,os
+          src=pathlib.Path("app/src/main/java/com/cryptotrader/bybit/Models.kt").read_text()
+          pathlib.Path("ReplayModels.kt").write_text(re.sub(r"data class AppState\([\s\S]*?\n\)\n", "", src))
+          p=pathlib.Path("tools/SignalReplay.kt")
+          s=p.read_text().replace("2026-11-09T00:00:00Z","2026-10-10T00:00:00Z").replace('File("replay-input.csv")','File("annual-replay.csv")').replace('line.split(",", limit = 8)','line.split(",")')
+          a=s.index("        val current ="); b=s.index("        prior = current",a)+len("        prior = current")
+          s=s[:a]+"        flows.add(Triple(a[6].toDoubleOrNull(),a[7].toDoubleOrNull(),a[8].toDoubleOrNull()))"+s[b:]
+          s=s.replace("entries Oct 10-Nov 8 UTC; exits through Nov 22","entries 2025-10-10 through 2026-10-09 UTC; exits through 2026-10-23")
+          assert "if(long) 1.05 else 0.95" in s and "if(long) 0.98 else 1.02" in s
+          tp=int(os.environ["TP"]); sl=int(os.environ["SL"])
+          s=s.replace("if(long) 1.05 else 0.95",f"if(long) {1+tp/100:.4f} else {1-tp/100:.4f}")
+          s=s.replace("if(long) 0.98 else 1.02",f"if(long) {1-sl/100:.4f} else {1+sl/100:.4f}")
+          s=s.replace("TP 5%, SL 2%",f"TP {tp}%, SL {sl}%")
+          p.write_text(s)
+          PY
+          src=app/src/main/java/com/cryptotrader/bybit
+          kotlinc "$src/SignalDetector.kt" ReplayModels.kt tools/SignalReplay.kt -include-runtime -d replay.jar
+      - name: Replay five timeframes
+        run: java -Xmx5g -jar replay.jar 1 5 15 30 60
+      - name: Summarise independent $100 trades
+        run: |
+          python - <<'PY'
+          import csv,collections
+          g=collections.defaultdict(list)
+          for r in csv.DictReader(open("signal-results.csv")):
+              g[(r["tf"],r["side"])].append(r)
+          with open("experiment-36-summary.csv","w",newline="") as f:
+              w=csv.writer(f);w.writerow(["tf","side","total","TP","SL","ambiguous","open","gap","netUSD","winRateClosed"])
+              for (tf,side),v in sorted(g.items(),key=lambda x:(int(x[0][0]),x[0][1])):
+                  counts=collections.Counter(x["status"] for x in v)
+                  closed=[x for x in v if x["status"] in ("TP","SL","ambiguous")]
+                  pnl=sum(float(x["returnPct"]) for x in closed)
+                  wr=counts["TP"]/len(closed) if closed else 0
+                  w.writerow([tf,side,len(v),counts["TP"],counts["SL"],counts["ambiguous"],counts["open"],counts["gap"],round(pnl,2),round(wr,6)])
+                  print(tf,side,"closed",len(closed),"netUSD",round(pnl,2),"winRate",round(wr*100,2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: experiment-36-${{ matrix.label }}
+          path: |
+            signal-results.csv
+            signal-summary.txt
+            experiment-36-summary.csv
