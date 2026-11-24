@@ -96,3 +96,7 @@ Run 45428768823 success, jobs 138567941408 (30m) and 138567940701 (60m). Reprodu
 32 rise,235,121,114,228.38,204.27,24.11; flat,53,22,31,38.22,56.22,-18.00; fall,15,11,4,16.58,9.03,7.55; flat_volume_up,17,7,10,7.77,20,-12.22.
 33 rise,230,118,112,216.35,203.91,12.44; flat,39,20,19,23.67,30.64,-6.97; fall,28,16,12,30.97,27.70,3.27; flat_volume_up,13,7,6,12.35,7.41,4.94.
 Descriptive groups of frozen entries, not filtered replays. Flat negative both, falling subgroup small. No independent validation. №34 run 45429875708 in progress, compiling succeeded, preparing annual compact trade inputs. No deposit or desired return target per user.
+
+
+### Experiment 35 — annual app replay TP10 SL5
+Same detector, dates, five timeframes and independent LONG/SHORT trades as #34; only TP=10%, SL=5% changed, $100 notional, no fees. Workflow `.github/workflows/annual-app-replay-tp10.yml`, commit `0c1940cd0b7f48ef615e7e9c8cf19b3b5e4f29dd`. Triggered by push; waits for #34 completion (up to 175 minutes), restores its compact cache with fail-on-cache-miss; no repeat download. Results pending. Same limitations as #34, including unresolved positions marked to market.
