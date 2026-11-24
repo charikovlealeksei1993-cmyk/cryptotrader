@@ -69,3 +69,6 @@ Commit 3eb01e74, workflow short-precursors.yml. Ожидает автозапу�
 
 ### Итог №30
 Run 45425289426 job 138555483422 success. Full 15/60/240m: windows 1105/275/67, events 30/14/2, signals 340/115/18, hits 16/8/1, false alarms 324/107/17, wins 70/41/8, losses 270/74/10, gains 10.72/12.75/2.89, losses USD 48.16/17.63/4.22, net -37.44/-4.88/-1.33. Price-volume control net -55.60/-8.08/-1.30. Fixed time exit, fee .11, no slippage/funding. Event precision 4.71/6.96/5.56% vs base 2.71/5.09/2.99%; weak enrichment, not profitable, tiny event counts especially 4h. False alarm means target drop not reached at horizon, not necessarily losing trade. No independent validation. №24 still downloading at check.
+
+### №31 — аудит двух сценариев №30
+Commit fe4689f033aa1f40cbc493d51968cbd4d54dd747, workflow short-scenario-audit.yml. Воспроизводит часовое дерево №30 без изменения параметров, проверяет 275 окон, 115 сигналов, 8 попаданий и корневой признак. A: высокая покупательская активность 30–60м назад; B: остальная положительная ветвь. Отдельные результаты, PnL, первое касание -0.5% после входа, максимальный рост/падение, медианы всех 28 предшествующих признаков для попаданий/промахов. Это диагностический анализ той же истории, не независимая проверка; первое касание не равно началу падения. Автозапуск после push.
