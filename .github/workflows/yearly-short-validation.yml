@@ -1,0 +1,70 @@
+name: Yearly independent SHORT validation
+on:
+  push:
+    branches: [feature/trap-signals-v14]
+    paths: ['.github/workflows/yearly-short-validation.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/cache@v4
+        with:
+          path: btc-year.csv
+          key: btc-bybit-minute-2025-10-10-2026-10-09-v1
+      - name: Download minute candles and test frozen conditions
+        run: |
+          python - <<'PY'
+          import csv,datetime,urllib.request,urllib.parse,json,time,os,bisect
+          start=int(datetime.datetime(2025,10,10,tzinfo=datetime.timezone.utc).timestamp()*1000)
+          end=int(datetime.datetime(2026,10,10,tzinfo=datetime.timezone.utc).timestamp()*1000)
+          if not os.path.exists("btc-year.csv"):
+              rows=[]
+              for a in range(start,end,1000*60000):
+                  b=min(end,a+1000*60000)
+                  url="https://api.bybit.com/v5/market/kline?"+urllib.parse.urlencode(dict(category="linear",symbol="BTCUSDT",interval=1,start=a,end=b-1,limit=1000))
+                  for attempt in range(5):
+                      try:
+                          with urllib.request.urlopen(url,timeout=40) as f: data=json.load(f)
+                          assert data["retCode"]==0,data
+                          batch=sorted(data["result"]["list"],key=lambda r:int(r[0]))
+                          assert [int(r[0]) for r in batch]==list(range(a,b,60000))
+                          break
+                      except Exception:
+                          if attempt==4: raise
+                          time.sleep(2**attempt)
+                  rows.extend(r[:6] for r in batch)
+                  if len(rows)%50000==0: print("Minutes downloaded",len(rows),flush=True)
+                  time.sleep(.12)
+              with open("btc-year.csv","w") as f: csv.writer(f).writerows(rows)
+          with open("btc-year.csv") as f: rows=list(csv.reader(f))
+          assert [int(r[0]) for r in rows]==list(range(start,end,60000))
+          o,h,l,c,v=([float(r[k]) for r in rows] for k in range(1,6))
+          p=[0.]
+          for x in v:p.append(p[-1]+x)
+          configs=[(60,.005,1.5),(15,.003,2),(30,.003,1.5),(60,.003,1.5),(60,.003,3),(60,.005,3)]
+          with open("yearly-results.csv","w") as f:
+              w=csv.writer(f);w.writerow(["window","rise","volume_multiple","trades","profitable","nonprofitable","gross_wins_after_fee","gross_losses_after_fee","net_usd","tp","sl","timeout"])
+              for window,rise,mult in configs:
+                  i=360; profits=[];tp=sl=timeout=0
+                  while i<len(o)-1440:
+                      if c[i-1]/c[i-window-1]-1<rise or (p[i]-p[i-window])/window<mult*(p[i-window]-p[i-360])/(360-window):
+                          i+=1;continue
+                      entry=o[i];stop=entry*1.05;target=entry*.90
+                      for j in range(i,i+1440):
+                          if h[j]>=stop: ret=-5;sl+=1;break
+                          if l[j]<=target: ret=10;tp+=1;break
+                      else:
+                          j=i+1440;ret=100*(1-o[j]/entry);timeout+=1
+                      profits.append(ret-.11);i=j+1
+                  win=sum(x>0 for x in profits);gain=sum(x for x in profits if x>0);loss=-sum(x for x in profits if x<=0)
+                  row=[window,rise,mult,len(profits),win,len(profits)-win,round(gain,2),round(loss,2),round(gain-loss,2),tp,sl,timeout]
+                  w.writerow(row);print(row,flush=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yearly-short-results
+          path: yearly-results.csv
