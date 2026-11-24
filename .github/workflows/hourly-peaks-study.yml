@@ -1,0 +1,30 @@
+name: BTC hourly extrema descriptive study
+on:
+  push:
+    branches: [feature/trap-signals-v14]
+    paths:
+      - 'tools/hourly_peaks_study.py'
+      - '.github/workflows/hourly-peaks-study.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  study:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        with:
+          path: annual-replay.csv
+          key: btc-annual-replay-compact-20251010-20261023-v1
+          fail-on-cache-miss: true
+      - name: Identify hourly swing highs and compare their conditions
+        run: python3 tools/hourly_peaks_study.py | tee hourly-peaks-log.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: btc-hourly-peaks-report
+          path: |
+            hourly-peaks-results/
+            hourly-peaks-log.txt
