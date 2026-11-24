@@ -4,6 +4,12 @@ on:
   push:
     branches:
       - feature/trap-signals-v14
+    paths:
+      - 'app/**'
+      - 'build.gradle*'
+      - 'settings.gradle*'
+      - 'gradle/**'
+      - 'gradle.properties'
   workflow_dispatch:
 
 jobs:
