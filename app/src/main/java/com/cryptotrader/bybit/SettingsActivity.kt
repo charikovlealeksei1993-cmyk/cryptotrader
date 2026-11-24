@@ -608,7 +608,7 @@ liqThresholdLabel.text = formatThreshold(Prefs.liqThreshold(this))
         root.addView(lttSeek)
 
         val lttHint = TextView(this)
-        lttHint.text = "Показывать в карточке сделки крупнее этого порога"
+        lttHint.text = "Минимальный размер сделки для анализа поглощения внутри накопления. Меньше порог — выше чувствительность."
         lttHint.textSize = 13f
         lttHint.setTextColor(Prefs.textDim(this))
         lttHint.setPadding(0, 4, 0, 12)
