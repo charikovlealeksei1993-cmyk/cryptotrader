@@ -1,4 +1,4 @@
-name: Experiment 38 - realistic capital replay
+name: Experiment 38 - realistic capital replay (fixed runner)
 on:
   push:
     branches: [feature/trap-signals-v14]
