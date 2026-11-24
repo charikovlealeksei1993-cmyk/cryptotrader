@@ -11,7 +11,7 @@ HISTORY="replay-input.csv"
 SIGNALS="signal-results.csv"
 OUTPUT="short-factor-results.csv"
 SPLIT=1792886400000  # 2026-10-25 UTC
-FEATURES=("price_rise_60m","volume_spike_60m","failed_high_15m","all_three")
+FEATURES=("price_rise_60m","volume_spike_60m","failed_high_15m","rise_and_spike","rise_and_failure","spike_and_failure","all_three")
 
 def main():
     times, highs, closes, volumes = [], [], [], []
@@ -42,12 +42,12 @@ def main():
             earlier_high=max(highs[i-60:i-15])
             recent_high=max(highs[i-15:i])
             failure=recent_high<=earlier_high
-            flags=(rise,spike,failure,rise and spike and failure)
+            flags=(rise,spike,failure,rise and spike,rise and failure,spike and failure,rise and spike and failure)
             period="train" if times[i]<SPLIT else "test"
             for feature,flag in zip(FEATURES,flags):
                 s=groups[(period,row["tf"],feature,"yes" if flag else "no")]
                 s[0]+=1;s[1]+=row["status"]=="TP";s[2]+=row["status"]=="SL"
-                s[3]+=float(row["returnPct"])
+                s[3]+=float(row["returnPct"])-0.11  # assumed round-trip fee, percentage points
     with open(OUTPUT,"w",newline="") as f:
         w=csv.writer(f)
         w.writerow(["period","tf","factor","condition","trades","tp","sl","win_rate_pct","pnl_usd_at_100_per_trade","expectancy_pct"])
@@ -62,7 +62,7 @@ def main():
                 selected=[s for (p,tf,k,v),s in groups.items() if (p,k,v)==(period,feature,flag)]
                 n=sum(s[0] for s in selected);pnl=sum(s[3] for s in selected)
                 print(f"{period:5s} {feature:18s} {flag:3s} n={n:5d} avg={pnl/n:+.4f}% pnl={pnl:+.2f}" if n else f"{period} {feature} {flag}: none")
-    print("Exploratory only: overlapping trades, zero fees, and multiple correlated timeframes; test period is not independent of research choices.")
+    print("Exploratory only: overlapping trades, assumed 0.11% round-trip fees, and multiple correlated timeframes; test period is not independent of research choices.")
 
 if __name__=="__main__":
     main()
