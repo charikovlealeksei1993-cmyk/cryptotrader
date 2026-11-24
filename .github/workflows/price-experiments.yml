@@ -1,0 +1,73 @@
+name: Reversal and continuation experiments
+on:
+  push:
+    branches: [feature/trap-signals-v14]
+    paths: ['.github/workflows/price-experiments.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  study:
+    strategy:
+      fail-fast: false
+      matrix:
+        experiment: [25, 26, 27]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        with:
+          path: replay-input.csv
+          key: btcusdt-history-v1-${{ hashFiles('tools/download_signal_history.py') }}
+          fail-on-cache-miss: true
+      - name: Test price patterns
+        env:
+          EXP: ${{ matrix.experiment }}
+        run: |
+          python - <<'PY'
+          import csv,os
+          csv.field_size_limit(10000000)
+          exp=int(os.environ["EXP"])
+          with open("replay-input.csv") as f:
+              rows=[r[:6] for r in csv.reader(f)]
+          assert len(rows)==44*1440
+          assert all(int(r[0])==1791590400000+i*60000 for i,r in enumerate(rows))
+          o,h,l,c,v=([float(r[k]) for r in rows] for k in range(1,6))
+          split=1792886400000
+          with open("price-results.csv","w") as f:
+              w=csv.writer(f)
+              w.writerow(["experiment","direction","period","trades","wins","losses","gains_usd","losses_usd","net_usd","tp","sl","timeout"])
+              for direction in ([1] if exp==25 else [-1] if exp==26 else [1,-1]):
+                  for period in ["train","test"]:
+                      i=60;profits=[];tp=sl=timeout=0
+                      while i<len(o)-1440:
+                          t=int(rows[i][0])
+                          if t>=1794182400000:break
+                          if period=="train" and int(rows[i+1440][0])>=split:break
+                          if period=="test" and t<split:i+=1;continue
+                          impulse=direction*(c[i-16]/c[i-46]-1)
+                          pullback=direction*(c[i-6]/c[i-16]-1)
+                          recovery=direction*(c[i-1]/c[i-6]-1)
+                          if exp==27:
+                              ok=impulse>=.005 and -.6*impulse<=pullback<=-.15*impulse and recovery>=.001
+                          else:
+                              ok=impulse<=-.005 and abs(pullback)<=.3*abs(impulse) and recovery>=.0015
+                          if not ok:i+=1;continue
+                          entry=o[i]
+                          for j in range(i,i+1440):
+                              stop=l[j]<=entry*.95 if direction==1 else h[j]>=entry*1.05
+                              target=h[j]>=entry*1.10 if direction==1 else l[j]<=entry*.90
+                              if stop:ret=-5;sl+=1;break
+                              if target:ret=10;tp+=1;break
+                          else:
+                              j=i+1440;ret=direction*100*(o[j]/entry-1);timeout+=1
+                          profits.append(ret-.11);i=j+1
+                      win=sum(x>0 for x in profits);gain=sum(x for x in profits if x>0);loss=-sum(x for x in profits if x<=0)
+                      row=[exp,direction,period,len(profits),win,len(profits)-win,round(gain,2),round(loss,2),round(gain-loss,2),tp,sl,timeout]
+                      w.writerow(row);print(row)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: price-experiment-${{ matrix.experiment }}
+          path: price-results.csv
