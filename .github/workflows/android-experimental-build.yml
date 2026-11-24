@@ -20,6 +20,8 @@ jobs:
       - uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - name: Remove phone-specific AAPT2 override on CI
+        run: sed -i '/^android\.aapt2FromMavenOverride=/d' gradle.properties
       - name: Compile experimental debug APK
         run: bash ./gradlew :app:assembleDebug --stacktrace --no-daemon
       - name: Upload debug APK
