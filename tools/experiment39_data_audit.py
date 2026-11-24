@@ -1,48 +1,53 @@
 #!/usr/bin/env python3
-"""Audit the headerless annual BTC replay input without inventing trap snapshots."""
+"""Experiment 39: verify historical BTC data readiness for trap A/B replay."""
 import csv
 import json
 import sys
 from pathlib import Path
 
-ANNUAL_COLUMNS = ["time", "open", "high", "low", "close", "volume",
-                  "delta", "cvd", "speed"]
-TRAP_REQUIRED = ["liq_total15m", "liq_long15m", "liq_short15m",
-                 "oi_previous", "oi_current", "aggressive_delta_ratio",
-                 "captured_at"]
+# Verified against tools/SignalReplay.kt and experiment-37 workflow.
+ANNUAL_FIELDS = ["time", "open", "high", "low", "close", "volume",
+                 "flow_delta_proxy", "flow_cvd_proxy", "flow_speed_proxy"]
+TRAP_EXTRA = ["liq_total15m", "liq_long15m", "liq_short15m",
+              "oi_previous", "oi_current", "aggressive_delta_ratio", "captured_at"]
+
 def audit(path):
     with path.open(newline="", encoding="utf-8") as f:
-        reader = csv.reader(f)
-        first = next(reader, [])
-        count = 1 if first else 0
-        lengths = {len(first): count} if first else {}
+        first = next(csv.reader(f), [])
+        f.seek(0)
+        headered = bool(first and first[0].strip().lower() == "time")
+        reader = csv.DictReader(f) if headered else csv.reader(f)
+        count = 0
+        widths = {}
         for row in reader:
             count += 1
-            lengths[len(row)] = lengths.get(len(row), 0) + 1
-    is_headerless = bool(first) and first[0].isdigit()
-    columns = ANNUAL_COLUMNS if is_headerless and len(first) == 9 else first
+            width = len(row) if not isinstance(row, dict) else len(row)
+            widths[str(width)] = widths.get(str(width), 0) + 1
+        fields = list(first) if headered else ANNUAL_FIELDS[:len(first)]
     return {
-        "file": str(path), "rows": count, "headerless": is_headerless,
-        "first_row_fields": len(first), "row_width_counts": lengths,
-        "interpreted_columns": columns,
-        "candles_available": all(x in columns for x in ANNUAL_COLUMNS[:6]),
-        "existing_flow_columns": [x for x in ("delta", "cvd", "speed") if x in columns],
-        "missing_trap_snapshots": TRAP_REQUIRED,
-        "ready_for_causal_trap_comparison": False,
-        "notes": [
-            "Annual input is nine positional fields, no CSV header; time is candle timestamp in ms.",
-            "delta/cvd/speed are detector flow features, NOT replacements for liquidation/OI snapshots.",
-            "Do not infer unavailable historical liquidation or OI values from OHLCV."
-        ]
+        "file": str(path), "rows": count, "has_header": headered,
+        "first_row_width": len(first), "row_width_counts": widths,
+        "known_columns": fields,
+        "flow_columns_are_proxies_not_aggressive_trade_snapshots": True,
+        "missing_for_trap_comparison": [x for x in TRAP_EXTRA if x not in fields],
+        "can_run_honest_trap_ab": all(x in fields for x in TRAP_EXTRA),
     }
+
 def main():
     results = [audit(Path(p)) for p in sys.argv[1:] if Path(p).is_file()]
+    ready = bool(results) and all(x["can_run_honest_trap_ab"] for x in results)
     report = {
-        "experiment": 39, "status": "MISSING_POINT_IN_TIME_TRAP_DATA",
+        "experiment": 39,
+        "status": "READY" if ready else "NOT_COMPARABLE_YET",
         "inputs": results,
-        "next_step": "Collect timestamped liquidation, OI, aggressive flow and capture times; align with candle closes before A/B replay.",
+        "note": ("Annual BTC file contains timestamped OHLCV and three derived flow "
+                 "proxies, not recorded point-in-time liquidation, OI and aggressive "
+                 "trade snapshots. Do not substitute proxies for those fields."),
+        "next": ("Collect timestamped real liquidation/OI/trade-flow snapshots; "
+                 "then compare matched trades using identical capital replay."),
     }
-    Path("experiment-39-audit.json").write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(json.dumps(report, indent=2, ensure_ascii=False))
+    Path("experiment-39-audit.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(json.dumps(report, ensure_ascii=False, indent=2))
 if __name__ == "__main__":
     main()
