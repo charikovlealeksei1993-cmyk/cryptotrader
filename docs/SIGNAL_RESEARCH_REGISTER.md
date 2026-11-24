@@ -84,3 +84,6 @@ Run 45418739012 job 138532067912 success, 525600 minutes, cache saved btc-bybit-
 60,.003,3,196,91,105,177.20,187.47,-10.27,1,12,183
 60,.005,3,170,77,93,150.75,165.69,-14.94,1,11,158
 Standalone OHLCV rules, not original detector filters. $100, fee .11%, SL5 TP10, 24h timeout. Most exits time-based. Two weak positive variants, no matched random baseline, no funding/slippage. Annual cache lacks signed flow. No robust advantage demonstrated.
+
+### №32–33 — аудит последних пяти минут
+Commit 1e5d49c93ba2cafc07e14b2f3c9efe7ac219e2d4, yearly-entry-audit.yml, matrix 30/60. Frozen annual variants 3/4, reproduce counts and net, same exits and fee. Group final five-minute return below -0.05%, above +0.05%, otherwise flat; flat with volume above previous five minutes is overlapping subgroup. Compare counts, wins/losses, gains/losses/net and medians by outcome. Descriptive only, no simulated filtered strategy, no signed flow; independent validation required. Auto push trigger.
