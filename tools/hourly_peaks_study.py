@@ -51,4 +51,5 @@ def main():
         if vals:summary[field]={"median":round(statistics.median(vals),3),"min":min(vals),"max":max(vals)}
     (out/"summary.json").write_text(json.dumps(summary,ensure_ascii=False,indent=2))
     print(json.dumps(summary,ensure_ascii=False))
+    print("Peak-candle-only descriptive report saved.")
 if __name__=="__main__":main()
