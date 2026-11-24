@@ -4,11 +4,19 @@ import java.io.File
 
 fun main() {
     val candles = mutableListOf<Candle>()
-    val flows = mutableListOf<List<Pair<Double, Double>>>()
+    val flows = mutableListOf<Triple<Double?,Double?,Double?>>()
+    var prior = emptyList<Pair<Double,Double>>()
+    val entryEnd = java.time.Instant.parse("2026-11-09T00:00:00Z").toEpochMilli()
     File("replay-input.csv").forEachLine { line ->
         val a = line.split(",")
         candles.add(Candle(a[0].toLong(),a[1].toDouble(),a[2].toDouble(),a[3].toDouble(),a[4].toDouble(),a[5].toDouble()))
-        flows.add(a[7].split(";").map { val v=it.split(":"); v[0].toDouble() to v[1].toDouble() })
+        val current = if(candles.last().time < entryEnd) a[7].split(";").map { val v=it.split(":"); v[0].toDouble() to v[1].toDouble() } else emptyList()
+        val previous = prior.takeLast((5000-current.size).coerceAtLeast(0))
+        val delta = if(previous.isNotEmpty()) current.sumOf { it.second } else null
+        val cvd = delta?.minus(previous.sumOf { it.second })
+        val prevUsd = previous.sumOf { it.first }
+        flows.add(Triple(delta,cvd,if(prevUsd>0) current.sumOf { it.first } / prevUsd else null))
+        prior = current
     }
     val results = File("signal-results.csv")
     results.writeText("time,strength,side,pattern,entry,exitTime,exitPrice,status,returnPct\n")
@@ -17,12 +25,8 @@ fun main() {
     val pnl = mutableMapOf<String, Double>()
     for (i in 6 until candles.size-1) {
         if ((i-5..i+1).any { candles[it].time-candles[it-1].time != 60000L }) continue
-        val current = flows[i]
-        val previous = flows[i-1].takeLast((5000-current.size).coerceAtLeast(0))
-        val delta = if(previous.isNotEmpty()) current.sumOf { it.second } else null
-        val cvd = delta?.minus(previous.sumOf { it.second })
-        val prevUsd = previous.sumOf { it.first }
-        val speed = if(prevUsd>0) current.sumOf { it.first } / prevUsd else null
+        if(candles[i+1].time >= entryEnd) break
+        val (delta,cvd,speed) = flows[i]
         val entry = candles[i+1].open
         val forming = Candle(candles[i].time+60000,entry,entry,entry,entry,0.0)
         val signal = SignalDetector.detectReversalSignal(candles.subList(i-6,i+1)+forming,null,0.0,delta,cvd,speed,null,1)
@@ -51,7 +55,7 @@ fun main() {
         pnl[key]=(pnl[key]?:0.0)+ret
         results.appendText(listOf(candles[i+1].time,signal.strength,signal.type,signal.pattern,entry,exitTime,exitPrice,status,ret).joinToString(",")+"\n")
     }
-    report.writeText("BTCUSDT M1 all signal strengths; independent overlapping trades; TP 5%, SL 2%; no fees; next-open entry; open positions marked at last close, not realized; ambiguous candles conservatively SL; approximate live signal timing.\n")
+    report.writeText("BTCUSDT M1 all signal strengths; entries Oct 10-Nov 8 UTC; exit-only Nov 9-22 UTC; independent overlapping trades; TP 5%, SL 2%; no fees; next-open entry; open positions marked at last close, not realized; ambiguous candles conservatively SL; approximate live signal timing.\n")
     for((key,n) in counts.toSortedMap()) report.appendText("$key: count=$n, sumReturnPct=${pnl[key]}\n")
     print(report.readText())
 }
