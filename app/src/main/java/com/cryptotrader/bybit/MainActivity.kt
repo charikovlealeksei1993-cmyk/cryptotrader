@@ -1089,8 +1089,7 @@ class MainActivity : Activity() {
         val stop = entry * (if (long) 1 - slPct / 100.0 else 1 + slPct / 100.0)
         val target = entry * (if (long) 1 + tpPct / 100.0 else 1 - tpPct / 100.0)
         if (target <= 0.0 || stop <= 0.0) return "Проверь настройки SL/TP"
-        val moved = kotlin.math.abs(r.price - entry) / entry * 100.0 >= 0.5
-        val prefix = if (moved) "⚠️ Цена ушла от исторического входа" else "План по настройкам робота (не ордер)"
+        val prefix = "План по настройкам робота (не ордер)"
         return "$prefix\nВход-ориентир: ${"%.4f".format(entry)} · SL: ${"%.4f".format(stop)} ($slPct%)\n" +
             "TP: ${"%.4f".format(target)} ($tpPct%)"
     }
@@ -2429,15 +2428,14 @@ class MainActivity : Activity() {
         ui.line.text = line
         ui.line.visibility = if (line.isEmpty()) View.GONE else View.VISIBLE
         ui.line.setTextColor(Prefs.textDim(this))
+        ui.line.setTypeface(null, Typeface.NORMAL)
         ui.line.setBackgroundColor(Color.TRANSPARENT)
         row.setBackgroundColor(base)
-        if (live.isEmpty() || long == short) return
+        // Keep the highlight fully visible until no liquidation has arrived for 60 seconds.
+        if (live.isEmpty()) return
 
-        val color = if (long > short) Color.rgb(230, 65, 65) else Color.rgb(30, 185, 100)
-        val latest = live.maxOf { it.time }
-        val freshness = (1.0 - (now - latest) / 60_000.0).coerceIn(0.0, 1.0)
-        val volume = (kotlin.math.ln(1.0 + long + short) / kotlin.math.ln(50001.0)).coerceIn(0.0, 1.0)
-        val intensity = freshness * (0.35 + 0.65 * volume)
+        val longDominant = if (long == short) live.maxByOrNull { it.time }?.isLong == true else long > short
+        val color = if (longDominant) Color.rgb(210, 25, 45) else Color.rgb(0, 145, 65)
         fun blend(amount: Double): Int {
             val f = amount.coerceIn(0.0, 1.0)
             return Color.rgb(
@@ -2446,7 +2444,9 @@ class MainActivity : Activity() {
                 (Color.blue(base) * (1 - f) + Color.blue(color) * f).toInt()
             )
         }
-        ui.line.setBackgroundColor(blend(0.25 * intensity))
+        ui.line.setBackgroundColor(color)
+        ui.line.setTextColor(Color.WHITE)
+        ui.line.setTypeface(null, Typeface.BOLD)
 
         // Read existing cascade status; also recognize the same onset condition
         // visually for symbols whose chart has not been opened.
@@ -2456,17 +2456,13 @@ class MainActivity : Activity() {
         val stage = if (now - (cascadeLastCheck[ui.symbol] ?: 0L) <= 420_000L)
             cascadeStages[ui.symbol] ?: 0 else 0
         val cascadeFactor = when {
-            stage == 4 -> 0.0
-            onset || stage == 1 -> 1.0
-            stage == 2 -> 0.6
-            stage == 3 -> 0.3
+            onset || stage in 1..3 -> 1.0
             else -> 0.0
         }
         if (cascadeFactor > 0.0) {
             row.background = GradientDrawable().apply {
-                setColor(blend(0.17 * intensity * cascadeFactor))
-                setStroke((2 * resources.displayMetrics.density).toInt().coerceAtLeast(1),
-                    blend(0.85 * intensity * cascadeFactor))
+                setColor(blend(0.35))
+                setStroke((3 * resources.displayMetrics.density).toInt().coerceAtLeast(1), color)
             }
         }
     }
