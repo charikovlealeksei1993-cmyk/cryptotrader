@@ -23,7 +23,7 @@ def regime(closes, i):
     # Last completed minute before entry, 24h before that.
     if i <= LOOKBACK:
         return None
-    change = 100 * (closes[i-1] / closes[i-1-LOOKBACK] - 1)
+    change = 100 * (closes[i-1] / closes[i-LOOKBACK] - 1)
     return "rising" if change >= 2 else "falling" if change <= -2 else "sideways"
 
 def result(i, entry, highs, lows, final_close):
