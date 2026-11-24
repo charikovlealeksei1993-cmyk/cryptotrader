@@ -1,0 +1,81 @@
+name: SHORT scenario audit 31
+on:
+  push:
+    branches: [feature/trap-signals-v14]
+    paths: ['.github/workflows/short-scenario-audit.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  study:
+    strategy:
+      fail-fast: false
+      matrix:
+        experiment: [31]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        with:
+          path: replay-input.csv
+          key: btcusdt-history-v1-${{ hashFiles('tools/download_signal_history.py') }}
+          fail-on-cache-miss: true
+      - name: Audit frozen hourly scenarios
+        run: |
+          python -m pip install numpy scikit-learn
+          python - <<'PY'
+          import csv,numpy as np
+          from sklearn.tree import DecisionTreeClassifier,export_text
+          csv.field_size_limit(10000000)
+          a=[];flow=[];cap=[0]
+          with open("replay-input.csv") as f:
+              for r in csv.reader(f):
+                  a.append([float(x) for x in r[:6]])
+                  d=[float(x.split(":")[1]) for x in r[7].split(";") if x]
+                  flow.append([sum(x for x in d if x>0),-sum(x for x in d if x<0)])
+                  cap.append(cap[-1]+(int(r[6])>=5000))
+          a=np.array(a);p=np.vstack([np.zeros(2),np.cumsum(flow,axis=0)])
+          assert len(a)==44*1440 and np.all(a[:,0]==1791590400000+np.arange(len(a))*60000)
+          X=[];Y=[];I=[];names=[]
+          for i in range(60,len(a)-60,60):
+              if a[i,0]>=1794182400000:break
+              if cap[i]!=cap[i-60]:continue
+              x=[];names=[]
+              for lo,hi in [(60,30),(30,15),(15,5),(5,0)]:
+                  j,k=i-lo,i-hi
+                  b,s=p[k]-p[j];ret=100*np.log(a[k-1,4]/a[j,1])
+                  x.extend([ret,np.log(a[j:k,2].max()/a[j:k,3].min()),np.log1p(a[j:k,5].mean()),(b-s)/max(b+s,1),np.log1p(b/(k-j)),np.log1p(s/(k-j)),ret/max((b+s)/1e6,1)])
+                  names.extend([f"{v}_{lo}_{hi}" for v in ["return","range","volume","imbalance","buy","sell","efficiency"]])
+              X.append(x);I.append(i);Y.append(a[i+60,1]<=a[i,1]*.995)
+          X=np.array(X);I=np.array(I);Y=np.array(Y)
+          split=np.searchsorted(a[:,0],1792886400000)
+          tr=I+60<split-60;te=I>=split
+          tree=DecisionTreeClassifier(max_depth=3,min_samples_leaf=20,class_weight="balanced",random_state=30).fit(X[tr],Y[tr])
+          print(export_text(tree,feature_names=names))
+          pred=tree.predict(X[te]);assert len(pred)==275 and pred.sum()==115 and Y[te][pred].sum()==8
+          leaves=tree.apply(X[te]);root=tree.tree_.threshold[0]
+          assert tree.tree_.feature[0]==4
+          rows=[]
+          for i,x,y,signal,leaf in zip(I[te],X[te],Y[te],pred,leaves):
+              if not signal:continue
+              label="A" if x[4]>root else "B"
+              entry=a[i,1];net=100*(1-a[i+60,1]/entry)-.11
+              hit=np.flatnonzero(a[i:i+60,3]<=entry*.995)
+              rows.append([label,int(y),int(a[i,0]),int(leaf),net,int(hit[0]+1) if len(hit) else -1,100*(a[i:i+60,2].max()/entry-1),100*(1-a[i:i+60,3].min()/entry),*x])
+          with open("scenario-audit.csv","w") as f:
+              w=csv.writer(f);w.writerow(["scenario","target_at_close","timestamp","leaf","net_usd","first_touch_minute","max_rise_pct","max_drop_pct",*names]);w.writerows(rows)
+          for label in ["A","B"]:
+              rr=[r for r in rows if r[0]==label];net=np.array([r[4] for r in rr])
+              print("SCENARIO",label,"n",len(rr),"hits",sum(r[1] for r in rr),"wins",int((net>0).sum()),"losses",int((net<=0).sum()),"gains",float(net[net>0].sum()),"loss_usd",float(-net[net<=0].sum()),"net",float(net.sum()))
+              for y in [0,1]:
+                  group=[r for r in rr if r[1]==y]
+                  if not group:continue
+                  touch=[r[5] for r in group if r[5]>0]
+                  print("DETAIL",label,y,"n",len(group),"touches",len(touch),"median_touch",float(np.median(touch)) if touch else None,"median_max_rise",float(np.median([r[6] for r in group])),"median_max_drop",float(np.median([r[7] for r in group])))
+                  for name,val in zip(names,np.median(np.array([r[8:] for r in group]),axis=0)):print("FEATURE",label,y,name,float(val))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: short-scenario-audit
+          path: scenario-audit.csv
