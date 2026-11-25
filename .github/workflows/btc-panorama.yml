@@ -50,6 +50,40 @@ jobs:
           draw(rows,'btc-24h',144,40,0)
           for h in range(24):
               draw(rows[h*60:(h+1)*60],f'btc-hour-{h:02d}',16,10,h*60)
+          import json
+          closes=[r[4] for r in rows]
+          travel=[0.]
+          for i in range(1,len(closes)):travel.append(travel[-1]+abs(closes[i]-closes[i-1]))
+          def efficiency(a,b):
+              d=travel[b]-travel[a]
+              return (closes[b]-closes[a])/d if d else 0.
+          candidates=[]
+          for i in range(40,len(rows)-40):
+              scores=[efficiency(i-w//2,i+w-w//2) for w in (5,10,20,40,80)]
+              for sign in (1,-1):
+                  strong=[v*sign for v in scores if v*sign>=.7]
+                  if len(strong)>=3:candidates.append((sum(strong)/len(strong),i,sign))
+          waves=[]
+          for score,i,sign in sorted(candidates,reverse=True):
+              if any(a<=i<=b for a,b,_,_,_ in waves):continue
+              a,b=i-2,i+3
+              if efficiency(a,b)*sign<.45:continue
+              while a>0 and efficiency(a-1,b)*sign>=.45:a-=1
+              while b<len(rows)-1 and efficiency(a,b+1)*sign>=.45:b+=1
+              waves.append((a,b,i,sign,round(score,3)))
+          waves.sort()
+          fig,ax=plt.subplots(figsize=(144,40),dpi=100)
+          ax.plot(closes,color='#b8c4d5',linewidth=1)
+          for a,b,i,sign,score in waves:
+              ax.axvspan(a,b,color='#20b486' if sign>0 else '#e05260',alpha=.12)
+              ax.scatter(i,closes[i],color='#20b486' if sign>0 else '#e05260',s=60)
+              ax.scatter([a,b],[closes[a],closes[b]],color='#f1b82d',s=40)
+          ax.set_facecolor('#111927');fig.patch.set_facecolor('#111927')
+          ax.tick_params(colors='white');ax.set_title('Exploratory wave cores | retrospective, not live signals',color='white')
+          ax.set_xticks(range(0,1440,30),[f'{i//60:02d}:{i%60:02d}' for i in range(0,1440,30)])
+          ax.grid(alpha=.15);fig.savefig(out/'wave-cores.png');plt.close(fig)
+          (out/'wave-cores.json').write_text(json.dumps(waves))
+          print('WAVE_CORES',json.dumps(waves))
           print('Verified 1440 consecutive candles; generated 25 charts')
           PY
       - uses: actions/upload-artifact@v4
