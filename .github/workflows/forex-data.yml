@@ -14,7 +14,15 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - uses: actions/cache@v4
+        id: forex-history
+        with:
+          path: |
+            forex-data/*.csv
+            forex-data/report.json
+          key: eurusd-fxcm-history-2020-2022-v1
       - name: Download and validate EURUSD since 2020 M1 (FXCM)
+        if: steps.forex-history.outputs.cache-hit != 'true'
         run: |
           mkdir -p forex-data
           python - <<'PY'
