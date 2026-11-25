@@ -9,6 +9,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
       - name: Download and validate EURUSD since 2020 M1 (FXCM)
         run: |
           mkdir -p forex-data
@@ -148,6 +153,26 @@ jobs:
           if not report['rowsValid']:raise SystemExit('No valid candles')
           if report['coverageDownloadedPercent']<90: print('WARNING: Coverage below 90%; dataset is incomplete. See report.json',flush=True)
           PY
+      - name: Compile and replay Forex patterns
+        run: |
+          src=app/src/main/java/com/cryptotrader/bybit
+          python -c 'import pathlib,re; s=pathlib.Path("app/src/main/java/com/cryptotrader/bybit/Models.kt").read_text(); pathlib.Path("ReplayModels.kt").write_text(re.sub(r"data class AppState\([\s\S]*?\n\)\n", "", s))'
+          kotlinc "$src/SignalDetector.kt" ReplayModels.kt tools/ForexReplay.kt -include-runtime -d forex.jar
+          java -Xmx5g -jar forex.jar
+          python - <<'PY'
+          import csv,collections,json
+          groups=collections.defaultdict(lambda:[0,0,0,0.0])
+          for r in csv.DictReader(open('forex-signals.csv')):
+              for name in (r['pattern'],'ALL'):
+                  k=(r['tf'],r['year'],name,r['horizonBars'])
+                  g=groups[k]
+                  if r['status']!='ok':g[2]+=1;continue
+                  p=float(r['netPips']);g[0]+=1;g[1]+=p>0;g[3]+=p
+          out=[dict(tf=k[0],year=k[1],pattern=k[2],horizon=k[3],valid=g[0],wins=g[1],gaps=g[2],meanPips=g[3]/max(1,g[0])) for k,g in sorted(groups.items())]
+          with open('forex-data/pattern-summary.json','w') as f:json.dump(out,f,ensure_ascii=False,indent=2)
+          print('FOREX SUMMARY',json.dumps(out,ensure_ascii=False))
+          PY
+          mv forex-signals.csv forex-data/
       - uses: actions/upload-artifact@v4
         if: always()
         with:
