@@ -173,6 +173,10 @@ jobs:
           print('FOREX SUMMARY',json.dumps(out,ensure_ascii=False))
           PY
           mv forex-signals.csv forex-data/
+      - name: Detect and draw Forex chart patterns
+        run: |
+          python -m pip install matplotlib
+          python tools/forex_figures.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
