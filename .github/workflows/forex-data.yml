@@ -127,6 +127,20 @@ jobs:
                   w.writerow(header)
                   w.writerows(data[t] for t in stamps[a:b])
               report['longestSegment']=describe(segments[0])
+          # Export independent research segments, with explicit reset boundaries.
+          selected=[]
+          with open('forex-data/eurusd-research-2020-2022.csv','w',newline='') as f:
+              w=csv.writer(f)
+              w.writerow(['SegmentId']+header)
+              for a,b in sorted(segments):
+                  subset=[t for t in stamps[a:b] if 2020<=t.year<=2022]
+                  if not subset: continue
+                  sid=len(selected)+1
+                  for t in subset: w.writerow([sid]+data[t])
+                  selected.append({'segmentId':sid,'first':str(subset[0]),'last':str(subset[-1]),'candles':len(subset)})
+          report['researchSegments']=selected
+          report['researchCandles']=sum(x['candles'] for x in selected)
+          report['backtestContract']='Reset pattern state at every SegmentId change. Exclude trades unresolved at segment end from performance and report separately. Never fabricate missing candles. Audit smaller gaps before using M1 execution.'
           report['coverageDownloadedPercent']=round(100*report['weeksDownloaded']/len(weeks),2)
           report['qualityStatus']='incomplete' if report['weeksMissing'] or report['weeksFailed'] else 'complete'
           with open('forex-data/report.json','w') as f:json.dump(report,f,indent=2)
