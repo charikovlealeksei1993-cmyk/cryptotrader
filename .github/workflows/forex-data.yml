@@ -79,26 +79,47 @@ jobs:
               header=next(reader)
               data={datetime.datetime.strptime(r[0],fmt):r for r in reader}
           stamps=sorted(data)
+          # Find archive-scale uninterrupted spans. A missing minute is recorded
+          # as a defect, but does not discard months of otherwise usable quotes.
+          # Any >=72-hour non-weekend gap splits the span. Normal FX weekends
+          # and holiday closures are tolerated, with audit statistics retained.
           segments=[]
           left=0
-          def expected_gap(a,b):
-              # Allow normal Friday-to-Sunday closures only, up to 73 hours.
-              return a.weekday()==4 and b.weekday() in (6,0) and a.hour>=20 and (b.weekday()==0 or b.hour>=20) and b-a<=datetime.timedelta(hours=73)
+          gap_events=[]
+          def expected_weekend(a,b):
+              return (a.weekday()==4 and b.weekday() in (6,0) and
+                      a.hour>=19 and b-a<=datetime.timedelta(hours=76))
           for i in range(1,len(stamps)):
               a,b=stamps[i-1],stamps[i]
-              if b-a>datetime.timedelta(minutes=1) and not expected_gap(a,b):
+              diff=b-a
+              if diff<=datetime.timedelta(minutes=1):
+                  continue
+              weekend=expected_weekend(a,b)
+              if not weekend:
+                  missing_minutes=int(diff.total_seconds()/60)-1
+                  gap_events.append({'from':str(a),'to':str(b),'missingMinutes':missing_minutes})
+              # A genuine missing market week is an absolute boundary.
+              if diff>=datetime.timedelta(hours=72) and not weekend:
                   segments.append((left,i))
                   left=i
-          if stamps: segments.append((left,len(stamps)))
+          if stamps:
+              segments.append((left,len(stamps)))
           segments.sort(key=lambda p:(stamps[p[1]-1]-stamps[p[0]],p[1]-p[0]),reverse=True)
           def describe(p):
               a,b=p
-              return {'first':str(stamps[a]),'last':str(stamps[b-1]),'candles':b-a,'days':(stamps[b-1]-stamps[a]).total_seconds()/86400}
+              low,high=stamps[a],stamps[b-1]
+              unexpected=[g for g in gap_events if low<=datetime.datetime.fromisoformat(g['from']) and datetime.datetime.fromisoformat(g['to'])<=high]
+              return {'first':str(low),'last':str(high),'candles':b-a,
+                      'calendarDays':round((high-low).total_seconds()/86400,2),
+                      'unexpectedGaps':len(unexpected),
+                      'missingMinutesWithinSpan':sum(g['missingMinutes'] for g in unexpected)}
           report['uniqueCandles']=len(stamps)
           report['duplicates']=report['rowsValid']-len(stamps)
           report['segmentCount']=len(segments)
+          report['unexpectedGapCount']=len(gap_events)
+          report['largestUnexpectedGaps']=sorted(gap_events,key=lambda g:g['missingMinutes'],reverse=True)[:20]
           report['topSegments']=[describe(p) for p in segments[:20]]
-          report['continuityRule']='Strict one-minute cadence except normal weekend closures; holidays not independently verified and therefore split segments.'
+          report['continuityRule']='Split only on unexpected >=72h gaps. Smaller missing-minute gaps remain documented: not a strict one-minute continuous series.'
           if segments:
               a,b=segments[0]
               with open('forex-data/eurusd-longest-contiguous.csv','w',newline='') as f:
