@@ -23,7 +23,7 @@ for line in open("annual-replay.csv"):
 data=[(*r,*features.get(r[0],(float("nan"),float("nan")))) for r in data]
 start=data[0][0]
 names={int(r["time"]):r["pattern"].split(" · ")[0] for r in rows}
-allowed={"Утренняя звезда","Медвежье харами"}
+allowed={"Утренняя звезда","Пинцет: дно","Медвежье харами","Падающая звезда"}
 assert allowed <= set(names.values()), "Allowed pattern names mismatch"
 excluded=set(names.values())-allowed
 assert excluded <= set(names.values()), "Pattern names mismatch"
@@ -61,8 +61,9 @@ def score(m,c):
     return (sum(sum(x)>0 for x in a),min(sum(x[k] for x in a) for k in (0,1)),sum(map(sum,a)))
 p=(2,3,15,15,5,10,2,0,1,2)
 out=[]
-for exclude in (False,True):
-    m,c=evaluate(p,exclude)
-    out.append(dict(params=p,excluded=sorted(excluded) if exclude else [],monthly=m,counts=c,training_score=score(m,c)))
+for exclude,nl,ns in [(False,2,3)]+[(True,l,s) for l in (1,2,3) for s in (1,2,3)]:
+    q=(nl,ns,*p[2:])
+    m,c=evaluate(q,exclude)
+    out.append(dict(params=q,excluded=sorted(excluded) if exclude else [],monthly=m,counts=c,training_score=score(m,c)))
 with open("optimizer-results.json","w") as f:json.dump(out,f,indent=2,ensure_ascii=False)
-print("TWO PATTERN CONTROL",json.dumps(out,ensure_ascii=False))
+print("FOUR PATTERN CONTROL",json.dumps(out,ensure_ascii=False))
