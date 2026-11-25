@@ -47,11 +47,25 @@ for tf in (5,15,30,60):
     name=results[-1]['pattern']
     if sum(x['tf']==tf and x['pattern']==name for x in results)<=8:
      lo=max(last,a[0]-12); hi=min(len(bars),i+11)
-     fig,ax=plt.subplots(figsize=(11,4))
-     ax.plot(range(lo,hi),[x[5] for x in bars[lo:hi]],color='black')
-     ax.plot([x[0] for x in (a,b,c)],[x[2] for x in (a,b,c)],'o-',color='blue')
-     ax.axhline(b[2],linestyle='--');ax.axvline(i,color='red')
-     ax.set_title(f'EURUSD M{tf} {name} {bars[i][0]}')
+     from matplotlib.patches import Rectangle
+     fig,ax=plt.subplots(figsize=(14,6))
+     for n in range(lo,hi):
+      _,_,o,h,l,cl=bars[n]
+      color='#16865b' if cl>=o else '#d94b4b'
+      ax.vlines(n,l,h,color=color,linewidth=1)
+      ax.add_patch(Rectangle((n-.32,min(o,cl)),.64,max(abs(cl-o),.000001),facecolor=color,edgecolor=color))
+     ax.plot([x[0] for x in (a,b,c)],[x[2] for x in (a,b,c)],'o-',color='#2357c6',linewidth=2)
+     for point,label in zip((a,b,c),('Peak 1' if top else 'Bottom 1','Neckline','Peak 2' if top else 'Bottom 2')):
+      ax.annotate(label,(point[0],point[2]),xytext=(0,15 if point[1]=='H' else -20),textcoords='offset points',ha='center',color='#2357c6')
+     ax.hlines(b[2],b[0],hi-1,linestyle='--',color='#806000',label='Neckline')
+     ax.axvline(i,color='#666666',linestyle=':',label='Confirmation candle')
+     ax.annotate('SELL' if top else 'BUY',xy=(i,close),xytext=(i,close+(abs(a[2]-b[2])*.35 if top else -abs(a[2]-b[2])*.35)),arrowprops=dict(arrowstyle='->',color='#d94b4b' if top else '#16865b',lw=2),ha='center')
+     ax.axvspan(i+.5,hi-.5,color='#aaaaaa',alpha=.12,label='After confirmation')
+     ticks=list(range(lo,hi,max(1,(hi-lo)//7)))
+     ax.set_xticks(ticks,[bars[n][0].strftime('%m-%d %H:%M') for n in ticks],rotation=25)
+     ax.set_ylabel('EUR/USD bid price');ax.ticklabel_format(axis='y',style='plain',useOffset=False)
+     ax.set_title(f'EUR/USD M{tf} | {"DOUBLE TOP - SELL" if top else "DOUBLE BOTTOM - BUY"} | {bars[i][0]}')
+     ax.grid(alpha=.15);ax.legend(loc='best');fig.tight_layout()
      fig.savefig(out/f'{tf}-{name}-{i}.png',dpi=130);plt.close(fig)
    else:keep.append((a,b,c,seen))
   pending=keep
