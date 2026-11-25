@@ -7,65 +7,37 @@ on:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 10
     steps:
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Download EURUSD minute candles
+      - name: Check alternative public Forex history sources
         run: |
-          npm install dukascopy-node
-          echo 'Testing a one-day history window before requesting three years'
           mkdir -p forex-data
-          cat > probe.cjs <<'JS'
-          const {getHistoricalRates}=require('dukascopy-node');
-          const fs=require('fs');
-          (async()=>{
-            const now=new Date();
-            const end=new Date(now); end.setUTCHours(0,0,0,0);
-            const start=new Date(end); start.setUTCDate(start.getUTCDate()-10);
-            const report=[];
-            fs.writeFileSync('forex-data/source-status.json',JSON.stringify({provider:'Dukascopy',status:'started',windowStart:start,windowEnd:end},null,2));
-            for(let from=new Date(start);from<end;){
-              const to=new Date(from);to.setUTCMonth(to.getUTCMonth()+1);
-              if(to>end)to.setTime(+end);
-              const rows=await getHistoricalRates({instrument:'eurusd',dates:{from,to},timeframe:'m1',format:'json',priceType:'bid'});
-              if(!Array.isArray(rows)||!rows.length)throw Error('Empty month '+from.toISOString());
-              fs.writeFileSync('forex-data/'+from.toISOString().slice(0,10)+'.json',JSON.stringify(rows));
-              report.push({from,to,count:rows.length,first:rows[0],last:rows.at(-1)});
-              console.log(JSON.stringify(report.at(-1)));
-              from=to;
-            }
-            const recent=await getHistoricalRates({instrument:'eurusd',dates:{from:new Date(+now-3600000),to:now},timeframe:'m1',format:'json',priceType:'bid'});
-            fs.writeFileSync('forex-data/recent.json',JSON.stringify(recent));
-            fs.writeFileSync('forex-data/report.json',JSON.stringify({now,report,recentCount:recent.length,recentLast:recent.at(-1)},null,2));
-          })().catch(e=>{fs.writeFileSync('forex-data/source-status.json',JSON.stringify({provider:'Dukascopy',status:'failed',error:String(e),code:e.code??null,httpStatus:e.status??null,url:e.url??null},null,2));console.error(e);process.exitCode=1});
-          JS
-          node probe.cjs
-      - name: Validate candles
-        if: always()
-        run: |
           python - <<'PY'
-          import glob,json,datetime
-          last=None; gaps=bad=total=0; examples=[]
-          for p in sorted(glob.glob('forex-data/2*.json')):
-              for r in json.load(open(p)):
-                  t=r['timestamp']
-                  if isinstance(t,str): t=datetime.datetime.fromisoformat(t.replace('Z','+00:00')).timestamp()*1000
-                  if last is not None and t-last!=60000:
-                      gaps+=1
-                      if len(examples)<20: examples.append([last,t,t-last])
-                  last=t
-                  o,h,l,c=(r[k] for k in ('open','high','low','close'))
-                  bad+=int(not (0<l<=min(o,c)<=max(o,c)<=h))
-                  total+=1
-          result=dict(total=total,non_minute_intervals=gaps,invalid_ohlc=bad,gap_examples=examples,note='Gaps include weekends and holidays; not all are missing data.')
-          print(result)
-          if total == 0: raise SystemExit('NO_FOREX_CANDLES: source unavailable or rejected request')
-          with open('forex-data/quality.json','w') as f:json.dump(result,f,indent=2)
+          import urllib.request,urllib.error,json,time
+          urls={
+            "histdata_download_page":"https://www.histdata.com/download-free-forex-data/",
+            "histdata_m1_spec":"https://www.histdata.com/f-a-q/data-files-detailed-specification/",
+            "truefx_historical_page":"https://www.truefx.com/truefx-historical-downloads/",
+            "oanda_practice_candles":"https://api-fxpractice.oanda.com/v3/instruments/EUR_USD/candles?granularity=M1&count=2"
+          }
+          results={}
+          for name,url in urls.items():
+              try:
+                  req=urllib.request.Request(url,headers={"User-Agent":"CryptoTrader-Forex-Source-Probe/1.0"})
+                  with urllib.request.urlopen(req,timeout=15) as r:
+                      payload=r.read(2048)
+                      results[name]={"status":r.status,"content_type":r.headers.get("Content-Type"),"bytes_sample":len(payload),"note":"Page or endpoint accessibility only; not confirmation of downloadable candles"}
+              except urllib.error.HTTPError as e:
+                  results[name]={"status":e.code,"note":"HTTP response without credentials (401 expected for OANDA)"}
+              except Exception as e:
+                  results[name]={"error":str(e)}
+              print(name,results[name],flush=True)
+          with open("forex-data/provider-access.json","w") as f:json.dump(results,f,indent=2)
+          if not any(x.get("status")==200 for x in results.values()):
+              raise SystemExit("No public provider page accessible")
           PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: forex-data-probe
+          name: forex-source-access
           path: forex-data/
