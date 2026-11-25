@@ -1,7 +1,7 @@
 name: Forex data probe
 on:
   push:
-    branches: [feature/forex]
+    branches: [feature/forex, feature/forex-shape-v2]
     paths: ['.github/workflows/forex-data.yml', 'tools/forex_figures.py', 'tools/ForexReplay.kt']
   workflow_dispatch:
 jobs:
