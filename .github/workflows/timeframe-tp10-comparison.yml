@@ -1,0 +1,70 @@
+name: Timeframe comparison TP10 SL5
+on:
+  push:
+    branches: [feature/trap-signals-v14]
+    paths: ['.github/workflows/timeframe-tp10-comparison.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile actual detector
+        run: |
+          src=app/src/main/java/com/cryptotrader/bybit
+          # AppState is unrelated to the detector and references Android UI models.
+          python -c 'import pathlib,re; s=pathlib.Path("app/src/main/java/com/cryptotrader/bybit/Models.kt").read_text(); pathlib.Path("ReplayModels.kt").write_text(re.sub(r"data class AppState\([\s\S]*?\n\)\n", "", s))'
+          kotlinc "$src/SignalDetector.kt" ReplayModels.kt tools/SignalReplay.kt -include-runtime -d replay.jar
+      - name: Restore annual replay inputs
+        uses: actions/cache/restore@v4
+        with:
+          path: annual-replay.csv
+          key: btc-annual-replay-compact-20251010-20261023-v1
+          fail-on-cache-miss: true
+      - name: Adapt replay input only
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path("tools/SignalReplay.kt")
+          s=p.read_text().replace("2026-11-09T00:00:00Z","2026-10-10T00:00:00Z").replace('File("replay-input.csv")','File("annual-replay.csv")').replace('line.split(",", limit = 8)','line.split(",")')
+          a=s.index("        val current =");b=s.index("        prior = current",a)+len("        prior = current")
+          s=s[:a]+"        flows.add(Triple(a[6].toDoubleOrNull(),a[7].toDoubleOrNull(),a[8].toDoubleOrNull()))"+s[b:]
+          s=s.replace("entries Oct 10-Nov 8 UTC; exits through Nov 22","entries 2025-10-10 through 2026-10-09 UTC; exits through 2026-10-23")
+          assert "if(long) 1.05 else 0.95" in s and "if(long) 0.98 else 1.02" in s
+          s=s.replace("if(long) 1.05 else 0.95","if(long) 1.10 else 0.90").replace("if(long) 0.98 else 1.02","if(long) 0.95 else 1.05").replace("TP 5%, SL 2%","TP 10%, SL 5%")
+          s=s.replace("listOf(1,5,15,30,60)", "listOf(1,5,15,30,60,240)")
+          p.write_text(s)
+          PY
+          src=app/src/main/java/com/cryptotrader/bybit
+          kotlinc "$src/SignalDetector.kt" ReplayModels.kt tools/SignalReplay.kt -include-runtime -d replay.jar
+      - name: Replay all five timeframes
+        run: |
+          java -Xmx5g -jar replay.jar 5 15 30 60 240
+          python - <<'PY'
+          import csv,collections
+          g=collections.defaultdict(list)
+          for r in csv.DictReader(open("signal-results.csv")):g[int(r["tf"])].append(r)
+          for tf,v in sorted(g.items()):
+              closed=[r for r in v if r["status"] in ("TP","SL","ambiguous")]
+              a=[float(r["returnPct"])-0.11 for r in closed]
+              wins=sum(r["status"]=="TP" for r in closed)
+              hours=[(int(r["exitTime"])-int(r["time"]))/3600000 for r in closed]
+              print("COMPARE",tf,"signals",len(v),"closed",len(closed),"TP",wins,"SL",len(closed)-wins,"winrate",round(100*wins/max(1,len(closed)),2),"net_sum_pct",round(sum(a),2),"mean_hours",round(sum(hours)/max(1,len(hours)),2),"statuses",dict(collections.Counter(r["status"] for r in v)))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: timeframe-tp10-comparison
+          path: |
+            signal-results.csv
+            signal-summary.txt
