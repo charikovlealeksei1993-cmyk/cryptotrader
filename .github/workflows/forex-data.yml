@@ -7,37 +7,44 @@ on:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
-      - name: Check alternative public Forex history sources
+      - name: Probe FXCM public M1 candles (EURUSD)
         run: |
           mkdir -p forex-data
           python - <<'PY'
-          import urllib.request,urllib.error,json,time
-          urls={
-            "histdata_download_page":"https://www.histdata.com/download-free-forex-data/",
-            "histdata_m1_spec":"https://www.histdata.com/f-a-q/data-files-detailed-specification/",
-            "truefx_historical_page":"https://www.truefx.com/truefx-historical-downloads/",
-            "oanda_practice_candles":"https://api-fxpractice.oanda.com/v3/instruments/EUR_USD/candles?granularity=M1&count=2"
-          }
-          results={}
-          for name,url in urls.items():
+          import csv, gzip, io, json, urllib.request, datetime, sys, traceback
+          now=datetime.datetime.now(datetime.timezone.utc)
+          # FXCM archives are indexed by week of year; try recent weeks and a historical reference.
+          weeks=[(now.year,now.isocalendar().week-1),(now.year-1,20),(2024,20)]
+          results=[]
+          for year,week in weeks:
+              if week<1: continue
+              url=f"https://candledata.fxcorporate.com/m1/EURUSD/{year}/{week}.csv.gz"
+              item={'provider':'FXCM','url':url}
               try:
-                  req=urllib.request.Request(url,headers={"User-Agent":"CryptoTrader-Forex-Source-Probe/1.0"})
-                  with urllib.request.urlopen(req,timeout=15) as r:
-                      payload=r.read(2048)
-                      results[name]={"status":r.status,"content_type":r.headers.get("Content-Type"),"bytes_sample":len(payload),"note":"Page or endpoint accessibility only; not confirmation of downloadable candles"}
-              except urllib.error.HTTPError as e:
-                  results[name]={"status":e.code,"note":"HTTP response without credentials (401 expected for OANDA)"}
+                  req=urllib.request.Request(url,headers={'User-Agent':'ForexDataQualityProbe/1.0'})
+                  with urllib.request.urlopen(req,timeout=25) as resp:
+                      body=resp.read(12_000_000)
+                      item['httpStatus']=resp.status
+                  lines=gzip.decompress(body).decode('utf-8-sig').splitlines()
+                  sample=list(csv.reader(lines[:5]))
+                  item.update(status='ok',lineCount=len(lines),sample=sample)
+                  print('FXCM SUCCESS',url,len(lines),sample[:2])
+                  # Save all rows for one week only; avoid committing vendor data to Git.
+                  with open('forex-data/eurusd-week.csv','w') as out:out.write('\n'.join(lines)+'\n')
+                  results.append(item)
+                  break
               except Exception as e:
-                  results[name]={"error":str(e)}
-              print(name,results[name],flush=True)
-          with open("forex-data/provider-access.json","w") as f:json.dump(results,f,indent=2)
-          if not any(x.get("status")==200 for x in results.values()):
-              raise SystemExit("No public provider page accessible")
+                  item.update(status='failed',error=str(e))
+                  print('FXCM FAILED',url,str(e))
+                  results.append(item)
+          with open('forex-data/source-status.json','w') as out:json.dump(results,out,indent=2)
+          if not any(x['status']=='ok' for x in results):
+              raise SystemExit('FXCM_ACCESS_UNAVAILABLE: no candles retrieved')
           PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: forex-source-access
+          name: forex-fxcm-probe
           path: forex-data/
