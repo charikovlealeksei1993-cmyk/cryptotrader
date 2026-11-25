@@ -9,7 +9,7 @@ with open('forex-data/eurusd-research-2020-2022.csv') as f:
  for r in csv.DictReader(f):
   t=dt.datetime.strptime(r['DateTime'],'%m/%d/%Y %H:%M:%S.%f')
   rows.append((t,int(r['SegmentId']),float(r['BidOpen']),float(r['BidHigh']),float(r['BidLow']),float(r['BidClose'])))
-results=[]
+results=[]; candidates=[]
 for tf in (5,15,30,60):
  bars=[]
  for (seg,bucket),g in __import__('itertools').groupby(rows,lambda r:(r[1],r[0].replace(hour=r[0].hour if tf<60 else r[0].hour,minute=r[0].minute//tf*tf,second=0,microsecond=0))):
@@ -62,6 +62,7 @@ for tf in (5,15,30,60):
       key=(a[0],b[0],c[0],typ)
       if key in seen_keys:continue
       seen_keys.add(key)
+      candidates.append(dict(tf=tf,confirmed=str(bars[i][0]),pattern='double_top' if typ=='H' else 'double_bottom',points=[str(bars[x[0]][0]) for x in (a,b,c)],neck=b[2],extreme=c[2],depth=depth))
       pending.append((a,b,c,i))
   keep=[]
   for a,b,c,seen in pending:
@@ -97,4 +98,5 @@ for tf in (5,15,30,60):
    else:keep.append((a,b,c,seen))
   pending=keep
 with open(out/'detections.json','w') as f:json.dump(results,f,indent=2)
+with open(out/'candidates.json','w') as f:json.dump(candidates,f,indent=2)
 print('FIGURES',collections.Counter((x['tf'],x['pattern']) for x in results))
