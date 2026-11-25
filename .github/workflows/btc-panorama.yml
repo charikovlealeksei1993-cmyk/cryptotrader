@@ -28,26 +28,31 @@ jobs:
           start=int(day.timestamp()*1000)
           rows=[(int(r[0]),*map(float,r[1:6])) for r in csv.reader(open('annual-replay.csv')) if start<=int(r[0])<start+86400000]
           assert [r[0] for r in rows]==list(range(start,start+86400000,60000))
-          fig,(ax,vol)=plt.subplots(2,1,figsize=(144,16),dpi=100,sharex=True,gridspec_kw={'height_ratios':[4,1]})
-          colors=['#20b486' if c>=o else '#e05260' for _,o,h,l,c,v in rows]
-          ax.add_collection(LineCollection([[(i,l),(i,h)] for i,(_,o,h,l,c,v) in enumerate(rows)],colors=colors,linewidths=.7))
-          for i,(_,o,h,l,c,v) in enumerate(rows):
-              ax.add_patch(Rectangle((i-.36,min(o,c)),.72,abs(c-o) or .01,color=colors[i],linewidth=0))
-          ax.autoscale_view()
-          vol.bar(range(1440),[r[5] for r in rows],color=colors,width=.72)
-          for a in (ax,vol):
-              a.set_facecolor('#111927');a.tick_params(colors='white',labelsize=14);a.grid(alpha=.16);a.set_axisbelow(True)
-              a.set_xlim(-1,1440)
-          vol.set_xticks(range(0,1440,30),[f'{i//60:02d}:{i%60:02d}' for i in range(0,1440,30)])
-          ax.set_title('BTCUSDT | Bybit | 2026-10-22 UTC | 1440 x 1m candles',color='white',fontsize=24)
-          ax.set_ylabel('USDT',color='white',fontsize=16)
-          vol.set_ylabel('Volume BTC',color='white',fontsize=16)
-          fig.patch.set_facecolor('#111927')
-          fig.subplots_adjust(left=.008,right=.997,bottom=.06,top=.95,hspace=.06)
-          fig.savefig('btc-24h-1m.png',dpi=100)
-          print('Verified 1440 consecutive candles')
+          from pathlib import Path
+          out=Path('charts');out.mkdir(exist_ok=True)
+          def draw(seg,name,width,height,offset):
+              fig,ax=plt.subplots(figsize=(width,height),dpi=100)
+              colors=['#20b486' if c>=o else '#e05260' for _,o,h,l,c,v in seg]
+              ax.add_collection(LineCollection([[(i,l),(i,h)] for i,(_,o,h,l,c,v) in enumerate(seg)],colors=colors,linewidths=1))
+              for i,(_,o,h,l,c,v) in enumerate(seg):
+                  ax.add_patch(Rectangle((i-.38,min(o,c)),.76,abs(c-o) or .01,color=colors[i],linewidth=0))
+              ax.autoscale_view()
+              ax.set_xlim(-1,len(seg))
+              step=30 if len(seg)>60 else 5
+              ticks=list(range(0,len(seg),step))
+              ax.set_xticks(ticks,[f'{(i+offset)//60:02d}:{(i+offset)%60:02d}' for i in ticks])
+              ax.set_facecolor('#111927');fig.patch.set_facecolor('#111927')
+              ax.tick_params(colors='white',labelsize=12);ax.grid(alpha=.2);ax.set_axisbelow(True)
+              ax.set_title(f'BTCUSDT | Bybit | 2026-10-22 UTC | {name} | 1m',color='white',fontsize=20)
+              fig.subplots_adjust(left=.008 if len(seg)>60 else .08,right=.995,bottom=.06,top=.95)
+              fig.savefig(out/(name+'.png'),dpi=100)
+              plt.close(fig)
+          draw(rows,'btc-24h',144,40,0)
+          for h in range(24):
+              draw(rows[h*60:(h+1)*60],f'btc-hour-{h:02d}',16,10,h*60)
+          print('Verified 1440 consecutive candles; generated 25 charts')
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: btc-24h-panorama
-          path: btc-24h-1m.png
+          name: btc-24h-detailed
+          path: charts/
