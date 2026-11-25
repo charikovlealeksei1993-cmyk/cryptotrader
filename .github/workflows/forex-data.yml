@@ -7,44 +7,79 @@ on:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 40
     steps:
-      - name: Probe FXCM public M1 candles (EURUSD)
+      - name: Download and validate three years of EURUSD M1 (FXCM)
         run: |
           mkdir -p forex-data
           python - <<'PY'
-          import csv, gzip, io, json, urllib.request, datetime, sys, traceback
-          now=datetime.datetime.now(datetime.timezone.utc)
-          # FXCM archives are indexed by week of year; try recent weeks and a historical reference.
-          weeks=[(now.year,now.isocalendar().week-1),(now.year-1,20),(2024,20)]
-          results=[]
-          for year,week in weeks:
-              if week<1: continue
-              url=f"https://candledata.fxcorporate.com/m1/EURUSD/{year}/{week}.csv.gz"
-              item={'provider':'FXCM','url':url}
+          import csv, gzip, io, json, urllib.request, urllib.error, datetime, time, collections, os
+          today=datetime.datetime.now(datetime.timezone.utc).date()
+          start=today.replace(year=today.year-3)
+          end=today
+          monday=start-datetime.timedelta(days=start.weekday())
+          weeks=[]
+          date=monday
+          while date<=end:
+              iso=date.isocalendar()
+              # FXCM uses 0-indexed week files rather than ISO week numbers.
+              weeks.append((date,iso.year,iso.week-1))
+              date+=datetime.timedelta(days=7)
+          report={'source':'FXCM public candledata', 'timeframe':'m1','pair':'EURUSD','startDate':str(start),'endDateExclusive':str(end),'weeksRequested':len(weeks),'weeksDownloaded':0,'weeksMissing':[], 'weeksFailed':[],'rowsValid':0,'rowsInvalid':0,'firstTimestamp':None,'lastTimestamp':None,'lastWeekDownloaded':None,'recentWeekFound':False,'spreadSamples':[]}
+          last_ms=None
+          gaps=collections.Counter()
+          out=open('forex-data/eurusd-m1-3y.csv','w',newline='')
+          writer=csv.writer(out)
+          writer.writerow(['DateTime','BidOpen','BidHigh','BidLow','BidClose','AskOpen','AskHigh','AskLow','AskClose'])
+          for date,year,week in weeks:
+              # DateTime is FXCM archive clock, not assumed UTC; keep raw date text.
+              url=f'https://candledata.fxcorporate.com/m1/EURUSD/{year}/{week}.csv.gz'
               try:
-                  req=urllib.request.Request(url,headers={'User-Agent':'ForexDataQualityProbe/1.0'})
-                  with urllib.request.urlopen(req,timeout=25) as resp:
-                      body=resp.read(12_000_000)
-                      item['httpStatus']=resp.status
-                  lines=gzip.decompress(body).decode('utf-8-sig').splitlines()
-                  sample=list(csv.reader(lines[:5]))
-                  item.update(status='ok',lineCount=len(lines),sample=sample)
-                  print('FXCM SUCCESS',url,len(lines),sample[:2])
-                  # Save all rows for one week only; avoid committing vendor data to Git.
-                  with open('forex-data/eurusd-week.csv','w') as out:out.write('\n'.join(lines)+'\n')
-                  results.append(item)
-                  break
+                  req=urllib.request.Request(url,headers={'User-Agent':'ForexArchiveProbe/1.0'})
+                  with urllib.request.urlopen(req,timeout=30) as r:
+                      payload=r.read(12_000_000)
+                  lines=csv.DictReader(io.StringIO(gzip.decompress(payload).decode('utf-8-sig')))
+                  rows=0
+                  for r in lines:
+                      try:
+                          bid=[float(r[k]) for k in ('BidOpen','BidHigh','BidLow','BidClose')]
+                          ask=[float(r[k]) for k in ('AskOpen','AskHigh','AskLow','AskClose')]
+                          bopen,bhigh,blow,bclose=bid
+                          aopen,ahigh,alow,aclose=ask
+                          if not (0<blow<=min(bopen,bclose)<=max(bopen,bclose)<=bhigh and 0<alow<=min(aopen,aclose)<=max(aopen,aclose)<=ahigh and ask[3]>=bid[3]):
+                              report['rowsInvalid']+=1
+                              continue
+                          ts=datetime.datetime.strptime(r['DateTime'],'%m/%d/%Y %H:%M:%S.%f')
+                          if not (start<=ts.date()<end):continue
+                          if report['firstTimestamp'] is None:report['firstTimestamp']=r['DateTime']
+                          report['lastTimestamp']=r['DateTime']
+                          if len(report['spreadSamples'])<4: report['spreadSamples'].append(round((ask[3]-bid[3])*10000,3))
+                          writer.writerow([r['DateTime']]+[r[k] for k in ('BidOpen','BidHigh','BidLow','BidClose','AskOpen','AskHigh','AskLow','AskClose')])
+                          rows+=1
+                      except (KeyError,ValueError,TypeError):
+                          report['rowsInvalid']+=1
+                  report['rowsValid']+=rows
+                  report['weeksDownloaded']+=1
+                  report['lastWeekDownloaded']=str(date)
+                  if date>=today-datetime.timedelta(days=14): report['recentWeekFound']=True
+                  print('OK',year,week,rows,flush=True)
+              except urllib.error.HTTPError as e:
+                  (report['weeksMissing'] if e.code==404 else report['weeksFailed']).append({'weekStart':str(date),'year':year,'weekNumber':week,'status':e.code})
+                  print('HTTP',e.code,year,week,flush=True)
               except Exception as e:
-                  item.update(status='failed',error=str(e))
-                  print('FXCM FAILED',url,str(e))
-                  results.append(item)
-          with open('forex-data/source-status.json','w') as out:json.dump(results,out,indent=2)
-          if not any(x['status']=='ok' for x in results):
-              raise SystemExit('FXCM_ACCESS_UNAVAILABLE: no candles retrieved')
+                  report['weeksFailed'].append({'weekStart':str(date),'year':year,'weekNumber':week,'error':str(e)})
+                  print('ERROR',year,week,str(e),flush=True)
+              if report['weeksDownloaded']%16==0 and report['weeksDownloaded']>0:out.flush()
+          out.close()
+          report['coverageDownloadedPercent']=round(100*report['weeksDownloaded']/len(weeks),2)
+          with open('forex-data/report.json','w') as f:json.dump(report,f,indent=2)
+          print('SUMMARY',json.dumps(report),flush=True)
+          if not report['rowsValid']:raise SystemExit('No valid candles')
+          if report['coverageDownloadedPercent']<90:raise SystemExit('Missing more than 10% of requested weekly archives')
           PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: forex-fxcm-probe
+          name: forex-fxcm-three-years
           path: forex-data/
+          compression-level: 6
