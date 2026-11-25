@@ -24,7 +24,7 @@ jobs:
           import matplotlib.pyplot as plt
           from matplotlib.collections import LineCollection
           from matplotlib.patches import Rectangle
-          day=datetime.datetime(2026,10,22,tzinfo=datetime.timezone.utc)
+          day=datetime.datetime(2026,8,17,tzinfo=datetime.timezone.utc)
           start=int(day.timestamp()*1000)
           rows=[(int(r[0]),*map(float,r[1:6])) for r in csv.reader(open('annual-replay.csv')) if start<=int(r[0])<start+86400000]
           assert [r[0] for r in rows]==list(range(start,start+86400000,60000))
@@ -43,7 +43,7 @@ jobs:
               ax.set_xticks(ticks,[f'{(i+offset)//60:02d}:{(i+offset)%60:02d}' for i in ticks])
               ax.set_facecolor('#111927');fig.patch.set_facecolor('#111927')
               ax.tick_params(colors='white',labelsize=12);ax.grid(alpha=.2);ax.set_axisbelow(True)
-              ax.set_title(f'BTCUSDT | Bybit | 2026-10-22 UTC | {name} | 1m',color='white',fontsize=20)
+              ax.set_title(f'BTCUSDT | Bybit | 2026-08-17 UTC | {name} | 1m',color='white',fontsize=20)
               fig.subplots_adjust(left=.008 if len(seg)>60 else .08,right=.995,bottom=.06,top=.95)
               fig.savefig(out/(name+'.png'),dpi=100)
               plt.close(fig)
