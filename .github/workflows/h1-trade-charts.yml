@@ -1,0 +1,59 @@
+name: Visualize actual H1 trades
+on:
+  push:
+    branches: [feature/trap-signals-v14]
+    paths: ['.github/workflows/h1-trade-charts.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  charts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@v4
+        with:
+          path: annual-replay.csv
+          key: btc-annual-replay-compact-20251010-20261023-v1
+          fail-on-cache-miss: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: timeframe-tp10-comparison
+          run-id: 45577133776
+          github-token: ${{ github.token }}
+      - run: pip install matplotlib pandas
+      - run: |
+          python - <<'PY'
+          import pandas as pd, matplotlib
+          matplotlib.use('Agg')
+          import matplotlib.pyplot as plt
+          from matplotlib.patches import Rectangle
+          from pathlib import Path
+          d=pd.read_csv('annual-replay.csv',header=None,usecols=range(6),names=['time','open','high','low','close','volume'])
+          d.index=pd.to_datetime(d.time,unit='ms',utc=True)
+          h=d.resample('1h').agg({'open':'first','high':'max','low':'min','close':'last'}).dropna()
+          t=pd.read_csv('signal-results.csv')
+          t=t[(t.tf==60)&t.status.isin(['TP','SL'])]
+          t=t[(t.time>=1786924800000)&(t.time<1787011200000)]
+          out=Path('charts');out.mkdir()
+          for j,r in enumerate(t.itertuples()):
+              a=pd.to_datetime(r.time,unit='ms',utc=True);b=pd.to_datetime(r.exitTime,unit='ms',utc=True)
+              seg=h.loc[a-pd.Timedelta(hours=12):b.ceil('h')+pd.Timedelta(hours=6)]
+              fig,ax=plt.subplots(figsize=(15,7),dpi=130)
+              for i,(ts,c) in enumerate(seg.iterrows()):
+                  col='#15976c' if c.close>=c.open else '#d64250'
+                  ax.vlines(i,c.low,c.high,color=col)
+                  ax.add_patch(Rectangle((i-.35,min(c.open,c.close)),.7,max(abs(c.close-c.open),.01),color=col))
+              x=(a-seg.index[0]).total_seconds()/3600;y=(b-seg.index[0]).total_seconds()/3600
+              sign=1 if r.side=='long' else -1
+              ax.hlines([r.entry*(1+sign*.10),r.entry*(1-sign*.05)],x,y,colors=['green','red'],linestyles='dashed')
+              ax.scatter(x,r.entry,c='royalblue',s=90,zorder=5,label='ENTRY '+r.side.upper())
+              ax.scatter(y,r.exitPrice,c='green' if r.status=='TP' else 'red',s=100,zorder=5,label='EXIT '+r.status)
+              ax.set_xticks(range(0,len(seg),12),[v.strftime('%d %b %H:%M') for v in seg.index[::12]],rotation=30)
+              ax.set_xlim(-1,len(seg));ax.set_title(f'BTCUSDT H1 | {r.side.upper()} | {r.status} | {r.entry:.2f} to {r.exitPrice:.2f} | UTC')
+              ax.legend();ax.grid(alpha=.2);fig.tight_layout();fig.savefig(out/f'trade-{j+1}.png');plt.close(fig)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: h1-trade-charts
+          path: charts/
