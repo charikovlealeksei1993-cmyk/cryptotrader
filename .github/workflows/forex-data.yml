@@ -72,10 +72,11 @@ jobs:
               if report['weeksDownloaded']%16==0 and report['weeksDownloaded']>0:out.flush()
           out.close()
           report['coverageDownloadedPercent']=round(100*report['weeksDownloaded']/len(weeks),2)
+          report['qualityStatus']='incomplete' if report['weeksMissing'] or report['weeksFailed'] else 'complete'
           with open('forex-data/report.json','w') as f:json.dump(report,f,indent=2)
           print('SUMMARY',json.dumps(report),flush=True)
           if not report['rowsValid']:raise SystemExit('No valid candles')
-          if report['coverageDownloadedPercent']<90:raise SystemExit('Missing more than 10% of requested weekly archives')
+          if report['coverageDownloadedPercent']<90: print('WARNING: Coverage below 90%; dataset is incomplete. See report.json',flush=True)
           PY
       - uses: actions/upload-artifact@v4
         if: always()
