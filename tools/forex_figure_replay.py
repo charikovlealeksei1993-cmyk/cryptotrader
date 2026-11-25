@@ -1,4 +1,5 @@
-import csv,json,datetime as dt,bisect,collections
+import csv,json,datetime as dt,bisect,collections,os
+holdout=os.getenv('FOREX_HOLDOUT')=='1'
 from pathlib import Path
 p=Path('forex-data')
 rows=[]; times=[]
@@ -31,6 +32,7 @@ for c in json.load(open(p/'figures/candidates.json')):
   if tf==5 and mode in ('pivot','break'):
    for sl in (0.5,0.75,1,1.25,1.5):
     for tp in (0.5,0.75,1,1.25,1.5,2):
+     if holdout and (mode,sl,tp) not in [('break',1.25,.5),('pivot',1.5,1)]:continue
      gs=entry-direction*risk*sl; gt=entry+direction*risk*tp
      pnl=None; status='gap'
      for j in range(a,min(len(rows),a+tf*40)):
@@ -68,7 +70,7 @@ for r in grid:g[(r['mode'],r['sl'],r['tp'])].append(r)
 report=[]
 for k,v in sorted(g.items()):
  x=[r['pips'] for r in v if r['pips'] is not None]
- years={str(y):round(sum(r['pips'] for r in v if r['year']==y and r['pips'] is not None),2) for y in (2020,2021,2022)}
+ years={str(y):round(sum(r['pips'] for r in v if r['year']==y and r['pips'] is not None),2) for y in ((2023,2024,2025) if holdout else (2020,2021,2022))}
  report.append(dict(mode=k[0],sl=k[1],tp=k[2],valid=len(x),excluded=len(v)-len(x),wins=sum(z>0 for z in x),net=round(sum(x),2),mean=round(sum(x)/max(1,len(x)),3),years=years))
 (p/'figure-grid-summary.json').write_text(json.dumps(report,indent=2))
 print('GRID SUMMARY',json.dumps(report))
