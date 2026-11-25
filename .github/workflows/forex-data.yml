@@ -4,6 +4,13 @@ on:
     branches: [feature/forex, feature/forex-shape-v2]
     paths: ['.github/workflows/forex-data.yml', 'tools/forex_figures.py', 'tools/ForexReplay.kt', 'tools/forex_figure_replay.py']
   workflow_dispatch:
+    inputs:
+      charts:
+        type: boolean
+        default: false
+      candles:
+        type: boolean
+        default: false
 jobs:
   probe:
     runs-on: ubuntu-latest
@@ -11,6 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
+        if: inputs.candles == true
         with:
           distribution: temurin
           java-version: '17'
@@ -162,6 +170,7 @@ jobs:
           if report['coverageDownloadedPercent']<90: print('WARNING: Coverage below 90%; dataset is incomplete. See report.json',flush=True)
           PY
       - name: Compile and replay Forex patterns
+        if: inputs.candles == true
         run: |
           src=app/src/main/java/com/cryptotrader/bybit
           python -c 'import pathlib,re; s=pathlib.Path("app/src/main/java/com/cryptotrader/bybit/Models.kt").read_text(); pathlib.Path("ReplayModels.kt").write_text(re.sub(r"data class AppState\([\s\S]*?\n\)\n", "", s))'
@@ -181,7 +190,15 @@ jobs:
           print('FOREX SUMMARY',json.dumps(out,ensure_ascii=False))
           PY
           mv forex-signals.csv forex-data/
-      - name: Detect and draw Forex chart patterns
+      - uses: actions/cache@v4
+        id: figures
+        with:
+          path: forex-data/figures/*.json
+          key: forex-figures-2023-2025-v1-${{ hashFiles('tools/forex_figures.py', 'forex-data/eurusd-research-2020-2022.csv') }}
+      - name: Detect Forex chart patterns
+        if: steps.figures.outputs.cache-hit != 'true' || inputs.charts == true
+        env:
+          FOREX_CHARTS: ${{ inputs.charts == true && '1' || '0' }}
         run: |
           python -m pip install matplotlib
           python tools/forex_figures.py
