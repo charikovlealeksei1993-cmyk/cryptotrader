@@ -15,6 +15,7 @@ jobs:
       - name: Download EURUSD minute candles
         run: |
           npm install dukascopy-node
+          echo 'Testing a one-day history window before requesting three years'
           mkdir -p forex-data
           cat > probe.cjs <<'JS'
           const {getHistoricalRates}=require('dukascopy-node');
@@ -22,8 +23,9 @@ jobs:
           (async()=>{
             const now=new Date();
             const end=new Date(now); end.setUTCHours(0,0,0,0);
-            const start=new Date(end); start.setUTCFullYear(start.getUTCFullYear()-3);
+            const start=new Date(end); start.setUTCDate(start.getUTCDate()-10);
             const report=[];
+            fs.writeFileSync('forex-data/source-status.json',JSON.stringify({provider:'Dukascopy',status:'started',windowStart:start,windowEnd:end},null,2));
             for(let from=new Date(start);from<end;){
               const to=new Date(from);to.setUTCMonth(to.getUTCMonth()+1);
               if(to>end)to.setTime(+end);
@@ -37,7 +39,7 @@ jobs:
             const recent=await getHistoricalRates({instrument:'eurusd',dates:{from:new Date(+now-3600000),to:now},timeframe:'m1',format:'json',priceType:'bid'});
             fs.writeFileSync('forex-data/recent.json',JSON.stringify(recent));
             fs.writeFileSync('forex-data/report.json',JSON.stringify({now,report,recentCount:recent.length,recentLast:recent.at(-1)},null,2));
-          })().catch(e=>{console.error(e);process.exitCode=1});
+          })().catch(e=>{fs.writeFileSync('forex-data/source-status.json',JSON.stringify({provider:'Dukascopy',status:'failed',error:String(e),code:e.code??null,httpStatus:e.status??null,url:e.url??null},null,2));console.error(e);process.exitCode=1});
           JS
           node probe.cjs
       - name: Validate candles
@@ -59,6 +61,7 @@ jobs:
                   total+=1
           result=dict(total=total,non_minute_intervals=gaps,invalid_ohlc=bad,gap_examples=examples,note='Gaps include weekends and holidays; not all are missing data.')
           print(result)
+          if total == 0: raise SystemExit('NO_FOREX_CANDLES: source unavailable or rejected request')
           with open('forex-data/quality.json','w') as f:json.dump(result,f,indent=2)
           PY
       - uses: actions/upload-artifact@v4
