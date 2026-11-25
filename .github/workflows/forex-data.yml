@@ -9,13 +9,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      - name: Download and validate three years of EURUSD M1 (FXCM)
+      - name: Download and validate EURUSD since 2020 M1 (FXCM)
         run: |
           mkdir -p forex-data
           python - <<'PY'
           import csv, gzip, io, json, urllib.request, urllib.error, datetime, time, collections, os
           today=datetime.datetime.now(datetime.timezone.utc).date()
-          start=today.replace(year=today.year-3)
+          start=datetime.date(2020,1,1)
           end=today
           monday=start-datetime.timedelta(days=start.weekday())
           weeks=[]
@@ -28,7 +28,7 @@ jobs:
           report={'source':'FXCM public candledata', 'timeframe':'m1','pair':'EURUSD','startDate':str(start),'endDateExclusive':str(end),'weeksRequested':len(weeks),'weeksDownloaded':0,'weeksMissing':[], 'weeksFailed':[],'rowsValid':0,'rowsInvalid':0,'firstTimestamp':None,'lastTimestamp':None,'lastWeekDownloaded':None,'recentWeekFound':False,'spreadSamples':[]}
           last_ms=None
           gaps=collections.Counter()
-          out=open('forex-data/eurusd-m1-3y.csv','w',newline='')
+          out=open('forex-data/eurusd-m1-all.csv','w',newline='')
           writer=csv.writer(out)
           writer.writerow(['DateTime','BidOpen','BidHigh','BidLow','BidClose','AskOpen','AskHigh','AskLow','AskClose'])
           for date,year,week in weeks:
@@ -71,6 +71,41 @@ jobs:
                   print('ERROR',year,week,str(e),flush=True)
               if report['weeksDownloaded']%16==0 and report['weeksDownloaded']>0:out.flush()
           out.close()
+          # Sort and deduplicate by actual timestamp, then split on unexpected gaps.
+          src='forex-data/eurusd-m1-all.csv'
+          fmt='%m/%d/%Y %H:%M:%S.%f'
+          with open(src) as f:
+              reader=csv.reader(f)
+              header=next(reader)
+              data={datetime.datetime.strptime(r[0],fmt):r for r in reader}
+          stamps=sorted(data)
+          segments=[]
+          left=0
+          def expected_gap(a,b):
+              # Allow normal Friday-to-Sunday closures only, up to 73 hours.
+              return a.weekday()==4 and b.weekday() in (6,0) and a.hour>=20 and (b.weekday()==0 or b.hour>=20) and b-a<=datetime.timedelta(hours=73)
+          for i in range(1,len(stamps)):
+              a,b=stamps[i-1],stamps[i]
+              if b-a>datetime.timedelta(minutes=1) and not expected_gap(a,b):
+                  segments.append((left,i))
+                  left=i
+          if stamps: segments.append((left,len(stamps)))
+          segments.sort(key=lambda p:(stamps[p[1]-1]-stamps[p[0]],p[1]-p[0]),reverse=True)
+          def describe(p):
+              a,b=p
+              return {'first':str(stamps[a]),'last':str(stamps[b-1]),'candles':b-a,'days':(stamps[b-1]-stamps[a]).total_seconds()/86400}
+          report['uniqueCandles']=len(stamps)
+          report['duplicates']=report['rowsValid']-len(stamps)
+          report['segmentCount']=len(segments)
+          report['topSegments']=[describe(p) for p in segments[:20]]
+          report['continuityRule']='Strict one-minute cadence except normal weekend closures; holidays not independently verified and therefore split segments.'
+          if segments:
+              a,b=segments[0]
+              with open('forex-data/eurusd-longest-contiguous.csv','w',newline='') as f:
+                  w=csv.writer(f)
+                  w.writerow(header)
+                  w.writerows(data[t] for t in stamps[a:b])
+              report['longestSegment']=describe(segments[0])
           report['coverageDownloadedPercent']=round(100*report['weeksDownloaded']/len(weeks),2)
           report['qualityStatus']='incomplete' if report['weeksMissing'] or report['weeksFailed'] else 'complete'
           with open('forex-data/report.json','w') as f:json.dump(report,f,indent=2)
@@ -81,6 +116,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: forex-fxcm-three-years
+          name: forex-fxcm-since-2020
           path: forex-data/
           compression-level: 6
