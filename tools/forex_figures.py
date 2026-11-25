@@ -68,7 +68,7 @@ for tf in (5,15,30,60):
     results.append(dict(tf=tf,time=str(bars[i][0]),pattern='double_top' if top else 'double_bottom',points=[str(bars[x[0]][0]) for x in (a,b,c)],neck=b[2],second_extends=bool(c[2]>a[2] if top else c[2]<a[2]),symmetry=min(b[0]-a[0],c[0]-b[0])/max(b[0]-a[0],c[0]-b[0]),duration=c[0]-a[0]))
     name=results[-1]['pattern']
     if sum(x['tf']==tf and x['pattern']==name for x in results)<=8:
-     lo=max(last,a[0]-max(24,c[0]-a[0])); hi=i+1
+     lo=max(last,a[0]-max(80,c[0]-a[0])); hi=i+1
      while hi<min(len(bars),i+11) and bars[hi][1]==bars[i][1] and bars[hi][0]-bars[hi-1][0]==dt.timedelta(minutes=tf):hi+=1
      from matplotlib.patches import Rectangle
      fig,ax=plt.subplots(figsize=(14,6))
