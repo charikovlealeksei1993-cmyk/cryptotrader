@@ -31,7 +31,7 @@ for tf in (5,15,30,60):
     else:piv.append(p)
     if len(piv)>=3:
      a,b,c=piv[-3:]
-     if a[1]==c[1] and 6<=c[0]-a[0]<=80:
+     if a[1]==c[1] and a[0]<b[0]<c[0] and 6<=c[0]-a[0]<=80:
       sign=1 if typ=='H' else -1
       prior=bars[max(last,a[0]-max(24,c[0]-a[0])):a[0]]
       if len(prior)<12:continue
@@ -42,6 +42,10 @@ for tf in (5,15,30,60):
       move=vals[-1]-vals[0]
       travel=sum(abs(y-x) for x,y in zip(vals,vals[1:]))
       if move<max(4*scale,depth) or travel<=0 or move/travel<.30:continue
+      symmetry=min(b[0]-a[0],c[0]-b[0])/max(b[0]-a[0],c[0]-b[0])
+      if tf==15 and symmetry<.40:continue
+      if tf==30 and move/travel<.35:continue
+      if tf==60 and abs(a[2]-c[2])>depth*.25:continue
       if statistics.median(vals[len(vals)//2:])<=statistics.median(vals[:len(vals)//2]):continue
       def clean(u,v,d):
        vals=[d*u[2]]+[d*bars[j][5] for j in range(u[0]+1,v[0])]+[d*v[2]]
@@ -67,7 +71,7 @@ for tf in (5,15,30,60):
    if (top and close<b[2]) or (not top and close>b[2]):
     results.append(dict(tf=tf,time=str(bars[i][0]),pattern='double_top' if top else 'double_bottom',points=[str(bars[x[0]][0]) for x in (a,b,c)],neck=b[2],second_extends=bool(c[2]>a[2] if top else c[2]<a[2]),symmetry=min(b[0]-a[0],c[0]-b[0])/max(b[0]-a[0],c[0]-b[0]),duration=c[0]-a[0]))
     name=results[-1]['pattern']
-    if sum(x['tf']==tf and x['pattern']==name for x in results)<=8:
+    if sum(x['tf']==tf and x['pattern']==name for x in results)<=16:
      lo=max(last,a[0]-max(80,c[0]-a[0])); hi=i+1
      while hi<min(len(bars),i+11) and bars[hi][1]==bars[i][1] and bars[hi][0]-bars[hi-1][0]==dt.timedelta(minutes=tf):hi+=1
      from matplotlib.patches import Rectangle
