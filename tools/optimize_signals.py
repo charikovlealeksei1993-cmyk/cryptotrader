@@ -23,7 +23,9 @@ for line in open("annual-replay.csv"):
 data=[(*r,*features.get(r[0],(float("nan"),float("nan")))) for r in data]
 start=data[0][0]
 names={int(r["time"]):r["pattern"].split(" · ")[0] for r in rows}
-excluded={"Бычий внешний бар","Просвет в облаках","Пинцет: вершина","Доджи-надгробие"}
+allowed={"Утренняя звезда","Медвежье харами"}
+assert allowed <= set(names.values()), "Allowed pattern names mismatch"
+excluded=set(names.values())-allowed
 assert excluded <= set(names.values()), "Pattern names mismatch"
 
 month=365*86400000/12
@@ -63,4 +65,4 @@ for exclude in (False,True):
     m,c=evaluate(p,exclude)
     out.append(dict(params=p,excluded=sorted(excluded) if exclude else [],monthly=m,counts=c,training_score=score(m,c)))
 with open("optimizer-results.json","w") as f:json.dump(out,f,indent=2,ensure_ascii=False)
-print("CONTROL",json.dumps(out,ensure_ascii=False))
+print("TWO PATTERN CONTROL",json.dumps(out,ensure_ascii=False))
