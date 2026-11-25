@@ -1,0 +1,38 @@
+name: M1 interactive candle chart
+on:
+  push:
+    branches: [feature/trap-signals-v14]
+    paths: ['.github/workflows/m1-interactive-chart.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@v4
+        with:
+          path: annual-replay.csv
+          key: btc-annual-replay-compact-20251010-20261023-v1
+          fail-on-cache-miss: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: m1-two-signals
+          run-id: 45578811263
+          github-token: ${{ github.token }}
+      - run: |
+          python - <<'PY'
+          import csv,json
+          candles=[[int(r[0])//1000,*map(float,r[1:5])] for r in csv.reader(open('annual-replay.csv'))]
+          trades=[[int(r['time'])//1000,float(r['entry']),r['side'],int(r['exitTime'])//1000,float(r['exitPrice']),r['status']] for r in csv.DictReader(open('pair-results.csv'))]
+          assert len(trades)==39405
+          html="""<!doctype html><html><meta charset="utf-8"><title>BTCUSDT M1</title><style>body{background:#101722;color:#eee;font:15px Arial;margin:12px}canvas{width:100%;height:76vh;touch-action:none}button,input{margin:5px;padding:6px}#info{min-height:24px}</style><h2>BTCUSDT — M1 | two consecutive signals | TP 10% / SL 5%</h2><div><input type=date id=date><button id=go>Go to date</button><button id=all>Full year</button><button id=day>1 day</button><button id=hour>1 hour</button><label><input type=checkbox id=long checked>LONG</label><label><input type=checkbox id=short checked>SHORT</label><label><input type=checkbox id=tp checked>TP</label><label><input type=checkbox id=sl checked>SL</label></div><div id=info></div><canvas id=c></canvas><p>Wheel to zoom; drag to pan. Blue ▲ LONG, orange ▼ SHORT, green ● TP, red × SL. UTC. Overview candles aggregated to screen resolution; actual M1 candles when zoomed in.</p><script>const D=__DATA__,T=__TRADES__; const c=document.getElementById('c'),ctx=c.getContext('2d'),$=x=>document.getElementById(x);let a=0,b=D.length,drag=null;const idx=t=>{let l=0,r=D.length;while(l<r){let m=(l+r)>>1;if(D[m][0]<t)l=m+1;else r=m}return l};function set(x,y){let n=Math.min(D.length,Math.max(10,y-x));a=Math.max(0,Math.min(D.length-n,Math.round(x)));b=a+Math.round(n);draw()}function draw(){let w=c.clientWidth,h=c.clientHeight;c.width=w*devicePixelRatio;c.height=h*devicePixelRatio;ctx.scale(devicePixelRatio,devicePixelRatio);let W=w-85,H=h-40;let lo=Infinity,hi=-Infinity;for(let i=a;i<b;i++){lo=Math.min(lo,D[i][3]);hi=Math.max(hi,D[i][2])}let pad=(hi-lo)*.05||1;lo-=pad;hi+=pad;let X=i=>8+(i-a)*W/(b-a),Y=p=>10+(hi-p)*H/(hi-lo);ctx.fillStyle='#101722';ctx.fillRect(0,0,w,h);ctx.font='12px Arial';for(let k=0;k<=5;k++){let p=lo+(hi-lo)*k/5,y=Y(p);ctx.strokeStyle='#293748';ctx.beginPath();ctx.moveTo(8,y);ctx.lineTo(W+8,y);ctx.stroke();ctx.fillStyle='#aab9c9';ctx.fillText(p.toFixed(0),W+12,y)}let step=Math.max(1,Math.ceil((b-a)/(W/5)));for(let i=a;i<b;i+=step){let o=D[i][1],hh=-Infinity,ll=Infinity,end=Math.min(b,i+step),cl=D[end-1][4];for(let j=i;j<end;j++){hh=Math.max(hh,D[j][2]);ll=Math.min(ll,D[j][3])}let x=X(i+step/2),col=cl>=o?'#26a69a':'#ef5350';ctx.strokeStyle=ctx.fillStyle=col;ctx.beginPath();ctx.moveTo(x,Y(hh));ctx.lineTo(x,Y(ll));ctx.stroke();ctx.fillRect(x-Math.max(1,W*step/(b-a)*.35),Math.min(Y(o),Y(cl)),Math.max(1,W*step/(b-a)*.7),Math.max(1,Math.abs(Y(o)-Y(cl))))}function mark(t,p,col,s){if(t<D[a][0]||t>D[b-1][0])return;let x=X(idx(t)),y=Y(p);ctx.fillStyle=col;ctx.font=(step===1?14:9)+'px Arial';ctx.fillText(s,x-4,y+3)}for(let r of T){if($(r[2]).checked)mark(r[0],r[1],r[2]==='long'?'#42a5ff':'#ffa726',r[2]==='long'?'▲':'▼');if(r[5]==='TP'&&$('tp').checked)mark(r[3],r[4],'#61e65b','●');if(r[5]==='SL'&&$('sl').checked)mark(r[3],r[4],'#ff5252','×')}ctx.font='12px Arial';ctx.fillStyle='#aab9c9';for(let k=0;k<6;k++){let i=Math.min(b-1,a+Math.floor((b-a)*k/6));ctx.fillText(new Date(D[i][0]*1000).toISOString().slice(0,16).replace('T',' '),X(i),h-8)}$('info').textContent=new Date(D[a][0]*1000).toISOString()+' — '+new Date(D[b-1][0]*1000).toISOString()+' | '+(b-a)+' M1 candles | aggregation '+step+' min'}c.addEventListener('wheel',e=>{e.preventDefault();let f=Math.max(0,Math.min(1,e.offsetX/(c.clientWidth-85))),n=(b-a)*Math.exp(e.deltaY*.002),m=a+(b-a)*f;set(m-n*f,m+n*(1-f))},{passive:false});c.onpointerdown=e=>{drag=[e.clientX,a,b];c.setPointerCapture(e.pointerId)};c.onpointermove=e=>{if(drag){let d=(drag[0]-e.clientX)*(drag[2]-drag[1])/(c.clientWidth-85);set(drag[1]+d,drag[2]+d)}};c.onpointerup=c.onpointercancel=()=>drag=null;$('all').onclick=()=>set(0,D.length);$('day').onclick=()=>set(a,a+1440);$('hour').onclick=()=>set(a,a+60);$('go').onclick=()=>{let i=idx(Date.parse($('date').value+'T00:00:00Z')/1000);if(Number.isFinite(i))set(i,i+1440)};for(let id of ['long','short','tp','sl'])$(id).onchange=draw;window.onresize=draw;draw();</script></html>"""
+          html=html.replace('__DATA__',json.dumps(candles,separators=(',',':'))).replace('__TRADES__',json.dumps(trades,separators=(',',':')))
+          open('BTC_M1_candles.html','w').write(html)
+          print('CANDLES',len(candles),'TRADES',len(trades))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m1-candle-chart
+          path: BTC_M1_candles.html
