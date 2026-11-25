@@ -5,7 +5,7 @@ rows=[]; times=[]
 for r in csv.DictReader(open(p/'eurusd-research-2020-2022.csv')):
  t=dt.datetime.strptime(r['DateTime'],'%m/%d/%Y %H:%M:%S.%f')
  times.append(t);rows.append((r['SegmentId'],*[float(r[k]) for k in ('BidOpen','BidHigh','BidLow','BidClose','AskOpen','AskHigh','AskLow','AskClose')]))
-out=[]
+out=[]; grid=[]
 for c in json.load(open(p/'figures/candidates.json')):
  tf=c['tf']; step=dt.timedelta(minutes=tf); start=dt.datetime.fromisoformat(c['confirmed'])+step
  direction=1 if c['pattern']=='double_bottom' else -1
@@ -28,6 +28,18 @@ for c in json.load(open(p/'figures/candidates.json')):
   stop=c['extreme']-direction*depth*.1
   risk=direction*(entry-stop)
   if risk<=0:continue
+  if tf==5 and mode in ('pivot','break'):
+   for sl in (0.5,0.75,1,1.25,1.5):
+    for tp in (0.5,0.75,1,1.25,1.5,2):
+     gs=entry-direction*risk*sl; gt=entry+direction*risk*tp
+     pnl=None; status='gap'
+     for j in range(a,min(len(rows),a+tf*40)):
+      if rows[j][0]!=seg or (j>a and times[j]-times[j-1]!=dt.timedelta(minutes=1)):break
+      r=rows[j]; low,high=(r[3],r[2]) if direction==1 else (r[7],r[6])
+      if (low<=gs if direction==1 else high>=gs):pnl=-risk*sl;status='stop';break
+      if (high>=gt if direction==1 else low<=gt):pnl=risk*tp;status='target';break
+      if j==a+tf*40-1:pnl=direction*(r[4 if direction==1 else 8]-entry);status='timeout'
+     grid.append(dict(mode=mode,sl=sl,tp=tp,year=times[a].year,pattern=c['pattern'],status=status,pips=None if pnl is None else pnl*10000))
   for rr in (1,2,3):
    target=entry+direction*risk*rr; status='timeout'; pnl=None
    for j in range(a,min(len(rows),a+tf*40)):
@@ -49,3 +61,14 @@ for k,v in sorted(groups.items()):
 (p/'figure-trades.json').write_text(json.dumps(out))
 (p/'figure-trade-summary.json').write_text(json.dumps(summary,indent=2))
 print('FIGURE TRADE SUMMARY',json.dumps(summary))
+
+(p/'figure-grid-trades.json').write_text(json.dumps(grid))
+g=collections.defaultdict(list)
+for r in grid:g[(r['mode'],r['sl'],r['tp'])].append(r)
+report=[]
+for k,v in sorted(g.items()):
+ x=[r['pips'] for r in v if r['pips'] is not None]
+ years={str(y):round(sum(r['pips'] for r in v if r['year']==y and r['pips'] is not None),2) for y in (2020,2021,2022)}
+ report.append(dict(mode=k[0],sl=k[1],tp=k[2],valid=len(x),excluded=len(v)-len(x),wins=sum(z>0 for z in x),net=round(sum(x),2),mean=round(sum(x)/max(1,len(x)),3),years=years))
+(p/'figure-grid-summary.json').write_text(json.dumps(report,indent=2))
+print('GRID SUMMARY',json.dumps(report))
