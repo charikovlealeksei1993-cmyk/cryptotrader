@@ -25,7 +25,7 @@ object SignalDetector {
         val upperWick = c.high - max(c.open, c.close)
         val lowerWick = min(c.open, c.close) - c.low
         val totalHeight = c.high - c.low
-        if (totalHeight <= 0.0 || body <= 0.0) return SignalResult("", 0L, "")
+        if (totalHeight <= 0.0) return SignalResult("", 0L, "")
 
         val isRed = c.close < c.open
         val isGreen = c.close > c.open

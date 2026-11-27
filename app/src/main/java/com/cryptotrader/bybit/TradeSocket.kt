@@ -34,7 +34,11 @@ class TradeSocket(
     @Volatile private var reconnectJob: ScheduledFuture<*>? = null
     private val attempts = AtomicInteger(0)
 
+    @Synchronized
     fun connect() {
+        if (closedByUser && ws != null) return
+        ws?.cancel()
+        ws = null
         closedByUser = false
         reconnectJob?.cancel(false)
         reconnectJob = null
@@ -68,15 +72,16 @@ class TradeSocket(
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                scheduleReconnect()
+                if (ws === webSocket && !closedByUser) scheduleReconnect()
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                scheduleReconnect()
+                if (ws === webSocket && !closedByUser) scheduleReconnect()
             }
         })
     }
 
+    @Synchronized
     private fun scheduleReconnect() {
         if (closedByUser) return
         val n = attempts.incrementAndGet()
@@ -88,11 +93,13 @@ class TradeSocket(
             n == 5 -> 30L
             else -> 60L
         }
+        reconnectJob?.cancel(false)
         reconnectJob = scheduler.schedule({
             if (!closedByUser) connect()
         }, delay, TimeUnit.SECONDS)
     }
 
+    @Synchronized
     fun close() {
         closedByUser = true
         reconnectJob?.cancel(false)

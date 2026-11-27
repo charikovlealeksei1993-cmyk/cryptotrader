@@ -225,7 +225,10 @@ object PaperTrading {
         val longWins: Int, val longLosses: Int, val shortWins: Int, val shortLosses: Int
     ) {
         val winRate: Double get() = if (totalTrades > 0) wins.toDouble() / totalTrades * 100 else 0.0
-        val profitFactor: Double get() = if (avgLoss != 0.0) abs(avgWin / avgLoss) else 0.0
+        val profitFactor: Double get() = when {
+            losses == 0 -> if (wins > 0) Double.POSITIVE_INFINITY else 0.0
+            else -> (avgWin * wins) / abs(avgLoss * losses)
+        }
     }
 
     fun computeStats(): Stats {
